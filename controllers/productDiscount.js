@@ -95,57 +95,6 @@ export const addDiscount = async (req, res) => {
 };
 
 
-export const getBatchDiscountsByProductIds = async (req, res) => {
-  const { productIds } = req.body;
-
-  if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
-    return res.status(400).json({ message: "Product IDs array is required" });
-  }
-
-  try {
-    // Convert all productIds to both string and number formats for flexible matching
-    const searchQueries = productIds.map(id => ({
-      $or: [
-        { productId: String(id) },
-        { productId: Number(id) }
-      ]
-    }));
-
-    // Use $or to match any of the product IDs
-    const discounts = await ProductDiscount.find({
-      $or: searchQueries
-    });
-
-    // Create a map for quick lookup
-    const discountMap = {};
-    discounts.forEach(discount => {
-      discountMap[discount.productId] = {
-        discount: discount.discount || 0,
-        discountPrice: discount.discountPrice || 0
-      };
-    });
-
-    // Ensure all requested products have entries (with 0 discount if not found)
-    const result = productIds.map(id => ({
-      productId: id,
-      discount: discountMap[id]?.discount || discountMap[String(id)]?.discount || 0,
-      discountPrice: discountMap[id]?.discountPrice || discountMap[String(id)]?.discountPrice || 0
-    }));
-
-    return res.status(200).json({
-      message: "Batch discounts fetched successfully",
-      data: result
-    });
-
-  } catch (error) {
-    console.error("Error in getBatchDiscountsByProductIds:", error);
-    return res.status(500).json({ 
-      message: "Server error",
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-};
-
 export const getDiscountByProductId = async (req, res) => {
   const { productId } = req.params;
 
