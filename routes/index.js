@@ -8,6 +8,7 @@ import favouriteRouter from "./favouriteRoute.js";
 // <<<<<<< HEAD
 // =======
 import marginRoutes from './marginRoutes.js';
+import categoryRouter from './supplierCategoryRoutes.js';
 // >>>>>>> 9676ff4 (Initial commit)
 const router = express.Router();
 
@@ -16,6 +17,7 @@ router.use("/checkout", checkoutRoutes);
 router.use("/add-discount", discontRoutes);
 router.use("/blogs", blogRouter);
 router.use("/favourites", favouriteRouter);
+router.use('/categories',categoryRouter)
 // <<<<<<< HEAD
 // =======
 router.use('/product-margin', marginRoutes);

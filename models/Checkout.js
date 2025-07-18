@@ -1,4 +1,4 @@
-import mongoose from "mongoose";
+import mongoose, { Types } from "mongoose";
 
 const ProductSchema = new mongoose.Schema({
   name: { type: String, required: true },
@@ -37,6 +37,11 @@ const shippingAddressSchema = new mongoose.Schema({
 });
 
 const CheckoutSchema = new mongoose.Schema({
+  userId: { 
+    type: Types.ObjectId, 
+    ref: "User", 
+    required: true 
+  },
   user: {
     firstName: { type: String, required: true },
     lastName: { type: String },
