@@ -1,5 +1,6 @@
 
 import addMarginModel from "../models/addMargin.js";
+import categoryMarginModal from "../models/categoryMargin.js";
 import ProductDiscountModel from "../models/ProductDiscount.js";
 import supplierMarginModel from "../models/SupplierMargin.js";
 
@@ -209,6 +210,63 @@ export const updateSupplierMargin = async (req, res) => {
     });
   } catch (error) {
     console.error('Error updating supplier margin:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+}
+
+export const addCategoryMargin = async(req,res)=>{
+  const {categoryName, categoryId,supplierId, supplierName, margin} = req.body;
+  if(!categoryName || !categoryId || !supplierId || !supplierName || !margin){
+    return res.status(400).json({ message: 'All fields are required' });
+  }
+  const found = await categoryMarginModal.findOne({supplierId, categoryId})
+  if(found){
+    await categoryMarginModal.findOneAndDelete({supplierId, categoryId})
+  }
+  const categoryMargin = new categoryMarginModal({
+    categoryName,
+    categoryId,
+    supplierId,
+    supplierName,
+    margin
+  })
+
+  try {
+    await categoryMargin.save();
+    res.status(201).json({
+      message: 'Category margin added successfully',
+      data: categoryMargin,
+    });
+  } catch (error) {
+    console.error('Error adding category margin:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+
+}
+
+export const getCategoryMargin = async(req,res)=>{
+  try {
+    const categoryMargin = await categoryMarginModal.find()
+    res.status(200).json({
+      message: 'Category margin fetched successfully',
+      data: categoryMargin,
+    });
+  } catch (error) {
+    console.error('Error fetching category margin:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+}
+
+export const deleteCategoryMargin = async(req,res)=>{
+  const {categoryId,supplierId} = req.query;
+  try {
+    const deletedMargin = await categoryMarginModal.findOneAndDelete({categoryId, supplierId})
+    res.status(200).json({
+      message: 'Category margin deleted successfully',
+      data: deletedMargin,
+    });
+  } catch (error) {
+    console.error('Error deleting category margin:', error);
     res.status(500).json({ message: 'Server error' });
   }
 }
