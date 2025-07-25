@@ -4,6 +4,8 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import User from "../models/User.js";
 import validator from "validator";
+import nodemailer from 'nodemailer';
+
 
 
 
@@ -244,7 +246,7 @@ export const updateWebUser = async (req, res) => {
 
     if (!isMatch) {
       return res
-        .status(401)
+        .status(400)
         .json({ success: false, message: "Invalid current password" });
     }
 
@@ -275,6 +277,179 @@ export const updateWebUser = async (req, res) => {
   }
 };
 
+// Generate random 6-digit code
+const generateResetCode = () => {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+};
+
+// Step 1: Check user and send reset code
+export const checkUser = async (req, res) => {
+  const { email } = req.body;
+  
+  try {
+    const user = await User.findOne({ email });
+    
+    if (!user) {
+      return res.json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    // Generate reset code and expiry time (60 seconds from now)
+    const resetCode = generateResetCode();
+    const resetCodeExpiry = new Date(Date.now() + 120 * 1000); // 60 seconds
+
+    // Save reset code and expiry to user
+    user.resetCode = resetCode;
+    user.resetCodeExpiry = resetCodeExpiry;
+    await user.save();
+
+    // In a real application, you would send email here
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+    });
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: `Super Merch-Reset Password`,
+      html: 
+      `<div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; text-align: center; content: center " >
+        <h2>Reset Password code: ${resetCode}</h2>
+      <div/>`}
+    console.log(`Reset code for ${email}: ${resetCode}`);
+    await transporter.sendMail(mailOptions);
+    
+    // For demo purposes, we're returning success without actually sending email
+    res.json({
+      success: true,
+      message: "Reset code sent to your email",
+      // Remove this in production - only for testing
+      resetCode: resetCode
+    });
+
+  } catch (error) {
+    console.error("Error in checkUser:", error);
+    res.json({
+      success: false,
+      message: "Error processing request"
+    });
+  }
+};
+
+// Step 2: Verify reset code
+export const verifyResetCode = async (req, res) => {
+  const { email, code } = req.body;
+
+  try {
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      return res.json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    // Check if code exists and hasn't expired
+    if (!user.resetCode || !user.resetCodeExpiry) {
+      return res.json({
+        success: false,
+        message: "No reset code found. Please request a new one."
+      });
+    }
+
+    if (new Date() > user.resetCodeExpiry) {
+      // Code expired, clear it
+      user.resetCode = undefined;
+      user.resetCodeExpiry = undefined;
+      await user.save();
+      
+      return res.json({
+        success: false,
+        message: "Reset code has expired. Please request a new one."
+      });
+    }
+
+    if (user.resetCode !== code) {
+      return res.json({
+        success: false,
+        message: "Invalid reset code"
+      });
+    }
+
+    // Code is valid
+    res.json({
+      success: true,
+      message: "Code verified successfully"
+    });
+
+  } catch (error) {
+    console.error("Error in verifyResetCode:", error);
+    res.json({
+      success: false,
+      message: "Error verifying code"
+    });
+  }
+};
+
+// Step 3: Reset password
+export const resetPassword = async (req, res) => {
+  const { email, code, newPassword } = req.body;
+
+  try {
+    // Validate password
+    if (!newPassword || newPassword.length < 6) {
+      return res.json({
+        success: false,
+        message: "Password must be at least 6 characters long"
+      });
+    }
+
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      return res.json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    // Verify code one more time
+    if (!user.resetCode || user.resetCode !== code || new Date() > user.resetCodeExpiry) {
+      return res.json({
+        success: false,
+        message: "Invalid or expired reset code"
+      });
+    }
+
+    // Hash new password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+    // Update password and clear reset code
+    user.password = hashedPassword;
+    user.resetCode = undefined;
+    user.resetCodeExpiry = undefined;
+    await user.save();
+
+    res.json({
+      success: true,
+      message: "Password reset successfully"
+    });
+
+  } catch (error) {
+    console.error("Error in resetPassword:", error);
+    res.json({
+      success: false,
+      message: "Error resetting password"
+    });
+  }
+};
 
 
 export { getAllUsers, signUpUser, loginUser, updateUser, deleteUser, getUser };

@@ -67,7 +67,7 @@ export const getMarginByProductId = async (req, res) => {
 
     if (!marginEntry) {
       return res
-        .status(404)
+        .status(200)
         .json({ message: 'Margin not found for this product' });
     }
 

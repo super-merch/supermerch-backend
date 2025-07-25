@@ -10,6 +10,9 @@ import {
   saveAddress,
   getWebUser,
   updateWebUser,
+  checkUser,
+  verifyResetCode,
+  resetPassword,
 
 } from "../controllers/userController.js";
 import authMiddleware from "../middleware/authMiddleware.js";
@@ -18,6 +21,9 @@ const router = express.Router();
 
 router.get("/user", getUser);
 
+router.post("/reset", checkUser);                    // Step 1: Check user & send code
+router.post("/verify-reset-code", verifyResetCode);  // Step 2: Verify code
+router.post("/reset-password", resetPassword); 
 // Get All Users
 router.get("/users", adminMiddlewere, getAllUsers);
 

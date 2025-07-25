@@ -988,7 +988,8 @@ app.get("/api/client-products-discounted", async (req, res) => {
 
   try {
     // First, get trending product IDs from the database
-    const trendingProducts = await productDiscount.find()
+    const trendingProducts = await productDiscount.find({$expr: {$gt: ["$discount", 0]}});
+    // const trendingProducts = trendingProduct.filter(item => item.discount > 0);
     
       
     
@@ -1335,270 +1336,276 @@ app.get("/api/client-products-bestSellers", async (req, res) => {
     res.status(500).json({ error: "Failed to fetch trending products" });
   }
 });
-app.get('/myapi', async (req, res) => {
-  const AUTH_TOKEN = "NDVhOWFkYWVkZWJmYTU0Njo3OWQ4MzJlODdmMjM4ZTJhMDZlNDY3MmVlZDIwYzczYQ";
-  const headers = {
-    "x-auth-token": AUTH_TOKEN,
-    "Content-Type": "application/json",
-  };
+// app.get('/myapi', async (req, res) => {
+//   const page = parseInt(req.query.page) || 1;
+//   const AUTH_TOKEN = "NDVhOWFkYWVkZWJmYTU0Njo3OWQ4MzJlODdmMjM4ZTJhMDZlNDY3MmVlZDIwYzczYQ";
+//   const headers = {
+//     "x-auth-token": AUTH_TOKEN,
+//     "Content-Type": "application/json",
+//   };
 
-  try {
-    // Fetch products
-    const prodResp = await axios.get(`https://api.promodata.com.au/products`, {
-      headers,
-    });
+//   try {
+//     // Fetch products
+//     const prodResp = await axios.get(`https://api.promodata.com.au/products?page=${page}`, {
+//       headers,
+//     });
 
-    // Fetch discounts, supplier margins, category margins, and existing margins
-    const discounts = await ProductDiscount.find();
-    const supplierMargins = await supplierMarginModel.find();
-    const categoryMargins = await categoryMarginModal.find(); // Add this line - you need to import this model
-    const existingMargins = await addMarginModel.find();
+//     // Fetch discounts, supplier margins, category margins, and existing margins
+//     const discounts = await ProductDiscount.find();
+//     const supplierMargins = await supplierMarginModel.find();
+//     const categoryMargins = await categoryMarginModal.find(); // Add this line - you need to import this model
+//     const existingMargins = await addMarginModel.find();
 
-    // Create supplier margins map for quick lookup
-    const supplierMarginsMap = {};
-    supplierMargins.forEach(item => {
-      supplierMarginsMap[item.supplierId] = item.margin;
-    });
+//     // Create supplier margins map for quick lookup
+//     const supplierMarginsMap = {};
+//     supplierMargins.forEach(item => {
+//       supplierMarginsMap[item.supplierId] = item.margin;
+//     });
 
-    // Create category margins map for quick lookup (supplierId-categoryId as key)
-    const categoryMarginsMap = {};
-categoryMargins.forEach(item => {
-  const key = `${item.supplierId}_${item.categoryId}`; // Use underscore for consistency
-  categoryMarginsMap[key] = item.margin;
-});
+//     // Create category margins map for quick lookup (supplierId-categoryId as key)
+//     const categoryMarginsMap = {};
+// categoryMargins.forEach(item => {
+//   const key = `${item.supplierId}_${item.categoryId}`; // Use underscore for consistency
+//   categoryMarginsMap[key] = item.margin;
+// });
 
-    // Create existing margins map for quick lookup
-    const existingMarginsMap = {};
-    existingMargins.forEach(item => {
-      existingMarginsMap[item.productId] = item;
-    });
+//     // Create existing margins map for quick lookup
+//     const existingMarginsMap = {};
+//     existingMargins.forEach(item => {
+//       existingMarginsMap[item.productId] = item;
+//     });
 
-    const response = prodResp.data.data;
-    const newResponse = [];
-    const discountedProductIds = discounts.map(discount => discount.productId);
+//     const response = prodResp.data.data;
+//     const newResponse = [];
+//     const discountedProductIds = discounts.map(discount => discount.productId);
 
-    // Helper function to get the appropriate margin for a product
-    const getMarginForProduct = (item) => {
-  const supplierId = item.supplier?.supplier_id;
-  // FIX: Use correct path to category ID
-  const categoryId = item.product?.categorisation?.product_type?.type_group_id;
+//     // Helper function to get the appropriate margin for a product
+//     const getMarginForProduct = (item) => {
+//   const supplierId = item.supplier?.supplier_id;
+//   // FIX: Use correct path to category ID
+//   const categoryId = item.product?.categorisation?.product_type?.type_group_id;
   
-  // Get supplier margin
-  const supplierMargin = supplierMarginsMap[supplierId] || 0;
+//   // Get supplier margin
+//   const supplierMargin = supplierMarginsMap[supplierId] || 0;
   
-  // Get category margin using correct key format (underscore, not hyphen)
-  const categoryKey = `${supplierId}_${categoryId}`;
-  const categoryMargin = categoryMarginsMap[categoryKey] || 0;
+//   // Get category margin using correct key format (underscore, not hyphen)
+//   const categoryKey = `${supplierId}_${categoryId}`;
+//   const categoryMargin = categoryMarginsMap[categoryKey] || 0;
   
-  // FIX: Add both margins together (like in /api/client-products)
-  const totalMargin = supplierMargin + categoryMargin;
+//   // FIX: Add both margins together (like in /api/client-products)
+//   const totalMargin = supplierMargin + categoryMargin;
   
-  return totalMargin;
-};
+//   return totalMargin;
+// };
 
 
-    // First loop: Process discounts
-    for (const item of response) {
-      if (discountedProductIds.includes(item.meta.id)) {
-        // Get appropriate margin for this product (category or supplier)
-        const margin = getMarginForProduct(item);
+//     // First loop: Process discounts
+//     for (const item of response) {
+//       if (discountedProductIds.includes(item.meta.id)) {
+//         // Get appropriate margin for this product (category or supplier)
+//         const margin = getMarginForProduct(item);
 
-        // Calculate margined price (base price + margin)
-        const basePrice = item.product.prices.price_groups[0].base_price.price_breaks[0].price;
-        const marginedPrice = basePrice + margin;
+//         // Calculate margined price (base price + margin)
+//         const basePrice = item.product.prices?.price_groups[0]?.base_price?.price_breaks[0]?.price || item.product.prices?.price_groups[0]?.additions?.price_breaks[0]?.price ||0;
+//         const marginedPrice = basePrice + margin;
 
-        const backendUrl = req.protocol + '://' + req.get('host');
-        const resp = await fetch(`${backendUrl}/api/add-discount/add-discount`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            productId: item.meta.id,
-            discount: discounts.find(discount => discount.productId === item.meta.id).discount,
-            basePrice: marginedPrice // Using margined price instead of base price
-          })
-        });
+//         const backendUrl = req.protocol + '://' + req.get('host');
+//         const resp = await fetch(`${backendUrl}/api/add-discount/add-discount`, {
+//           method: 'POST',
+//           headers: {
+//             'Content-Type': 'application/json'
+//           },
+//           body: JSON.stringify({
+//             productId: item.meta.id,
+//             discount: discounts.find(discount => discount.productId === item.meta.id).discount,
+//             basePrice: marginedPrice // Using margined price instead of base price
+//           })
+//         });
 
-        const discountResponse = await resp.json();
-        newResponse.push(discountResponse.data.message);
-      } else {
-        const backendUrl = req.protocol + '://' + req.get('host');
-        const resp = await fetch(`${backendUrl}/api/add-discount/add-discount`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            productId: item.meta.id,
-            discount: 0,
-            basePrice: item?.product?.prices?.price_groups[0]?.base_price?.price_breaks[0]?.price
-          })
-        });
+//         const discountResponse = await resp.json();
+//         newResponse.push(discountResponse.data.message);
+//       } else {
+//         const backendUrl = req.protocol + '://' + req.get('host');
+//         const margin = getMarginForProduct(item);
 
-        const discountResponse = await resp.json();
-        newResponse.push(discountResponse.data);
-      }
-    }
+//         // Calculate margined price (base price + margin)
+//         const basePrice = item.product.prices?.price_groups[0]?.base_price?.price_breaks[0]?.price || item.product.prices?.price_groups[0]?.additions?.price_breaks[0]?.price ||0;
+//         const marginedPrice = basePrice + margin;
+//         const resp = await fetch(`${backendUrl}/api/add-discount/add-discount`, {
+//           method: 'POST',
+//           headers: {
+//             'Content-Type': 'application/json'
+//           },
+//           body: JSON.stringify({
+//             productId: item.meta.id,
+//             discount: 0,
+//             basePrice: marginedPrice 
+//           })
+//         });
 
-    // Second loop: Process margins for all discounted products (using discounted prices)
-    for (const item of response) {
-      if (discountedProductIds.includes(item.meta.id)) {
-        // Get appropriate margin for this product (category or supplier)
-        const margin = getMarginForProduct(item);
+//         const discountResponse = await resp.json();
+//         newResponse.push(discountResponse.data);
+//       }
+//     }
 
-        // Calculate base price with margin
-        const basePrice = item.product.prices.price_groups[0].base_price.price_breaks[0].price;
-        const marginedPrice = basePrice + margin;
+//     // Second loop: Process margins for all discounted products (using discounted prices)
+//     for (const item of response) {
+//       if (discountedProductIds.includes(item.meta.id)) {
+//         // Get appropriate margin for this product (category or supplier)
+//         const margin = getMarginForProduct(item);
 
-        // Check if this product has a discount applied (from the previous loop)
-        let priceForMargin = marginedPrice;
+//         // Calculate base price with margin
+//         const basePrice = item.product.prices?.price_groups[0]?.base_price?.price_breaks[0].price || item.product.prices?.price_groups[0]?.additions?.price_breaks[0]?.price ||0;
+//         const marginedPrice = (basePrice==0?0:basePrice) + margin;
 
-        // If product has discount, we need to get the discounted price
-        if (discountedProductIds.includes(item.meta.id)) {
-          const discountInfo = discounts.find(discount => discount.productId === item.meta.id);
-          if (discountInfo) {
-            const discountAmount = (marginedPrice * discountInfo.discount) / 100;
-            priceForMargin = marginedPrice - discountAmount;
-          }
-        }
+//         // Check if this product has a discount applied (from the previous loop)
+//         let priceForMargin = marginedPrice;
 
-        const existingMargin = existingMarginsMap[item.meta.id];
-        const marginValue = existingMargin ? existingMargin.margin : 0;
+//         // If product has discount, we need to get the discounted price
+//         if (discountedProductIds.includes(item.meta.id)) {
+//           const discountInfo = discounts.find(discount => discount.productId === item.meta.id);
+//           if (discountInfo) {
+//             const discountAmount = (marginedPrice * discountInfo.discount) / 100;
+//             priceForMargin = marginedPrice - discountAmount;
+//           }
+//         }
 
-        const backendUrl = req.protocol + '://' + req.get('host');
-        const resp = await fetch(`${backendUrl}/api/product-margin/add-margin`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            productId: item.meta.id,
-            margin: marginValue,
-            basePrice: priceForMargin // Using discounted price if available
-          })
-        });
+//         const existingMargin = existingMarginsMap[item.meta.id];
+//         const marginValue = existingMargin ? existingMargin.margin : 0;
 
-        const marginResponse = await resp.json();
-        newResponse.push(marginResponse.data.message);
-      }
-    }
+//         const backendUrl = req.protocol + '://' + req.get('host');
+//         const resp = await fetch(`${backendUrl}/api/product-margin/add-margin`, {
+//           method: 'POST',
+//           headers: {
+//             'Content-Type': 'application/json'
+//           },
+//           body: JSON.stringify({
+//             productId: item.meta.id,
+//             margin: marginValue,
+//             basePrice: priceForMargin // Using discounted price if available
+//           })
+//         });
 
-    res.json(newResponse);
+//         const marginResponse = await resp.json();
+//         newResponse.push(marginResponse.data.message);
+//       }
+//     }
 
-  } catch (error) {
-    console.error("Error in /myapi:", error);
-    res.status(500).json({ error: "Failed to process products" });
-  }
-});
-app.get('/myapi2', async (req, res) => {
-  const AUTH_TOKEN = "NDVhOWFkYWVkZWJmYTU0Njo3OWQ4MzJlODdmMjM4ZTJhMDZlNDY3MmVlZDIwYzczYQ";
-  const headers = {
-    "x-auth-token": AUTH_TOKEN,
-    "Content-Type": "application/json",
-  };
+//     res.json(newResponse);
 
-  try {
-    // Fetch products
-    const prodResp = await axios.get(`https://api.promodata.com.au/products`, {
-      headers,
-    });
+//   } catch (error) {
+//     console.error("Error in /myapi:", error);
+//     res.status(500).json({ error: "Failed to process products" });
+//   }
+// });
+// app.get('/myapi2', async (req, res) => {
+//   const AUTH_TOKEN = "NDVhOWFkYWVkZWJmYTU0Njo3OWQ4MzJlODdmMjM4ZTJhMDZlNDY3MmVlZDIwYzczYQ";
+//   const headers = {
+//     "x-auth-token": AUTH_TOKEN,
+//     "Content-Type": "application/json",
+//   };
 
-    // Fetch global discount, supplier margins, and existing margins
-    const globalDiscount = await GlobalDiscount.findOne({ isActive: true });
-    const supplierMargins = await supplierMarginModel.find();
-    const existingMargins = await addMarginModel.find();
+//   try {
+//     // Fetch products
+//     const prodResp = await axios.get(`https://api.promodata.com.au/products`, {
+//       headers,
+//     });
 
-    // Create margins map for quick lookup
-    const marginsMap = {};
-    supplierMargins.forEach(item => {
-      marginsMap[item.supplierId] = item.margin;
-    });
+//     // Fetch global discount, supplier margins, and existing margins
+//     const globalDiscount = await GlobalDiscount.findOne({ isActive: true });
+//     const supplierMargins = await supplierMarginModel.find();
+//     const existingMargins = await addMarginModel.find();
 
-    // Create existing margins map for quick lookup
-    const existingMarginsMap = {};
-    existingMargins.forEach(item => {
-      existingMarginsMap[item.productId] = item;
-    });
+//     // Create margins map for quick lookup
+//     const marginsMap = {};
+//     supplierMargins.forEach(item => {
+//       marginsMap[item.supplierId] = item.margin;
+//     });
 
-    const response = prodResp.data.data;
-    const newResponse = [];
-    const globalDiscountPercentage = globalDiscount ? globalDiscount.discount : 0;
+//     // Create existing margins map for quick lookup
+//     const existingMarginsMap = {};
+//     existingMargins.forEach(item => {
+//       existingMarginsMap[item.productId] = item;
+//     });
 
-    // Process all products with global discount and margins
-    for (const item of response) {
-      try {
-        // Get supplier margin for this product
-        const supplierId = item.supplier?.supplier_id;
-        const supplierMargin = marginsMap[supplierId] || 0;
+//     const response = prodResp.data.data;
+//     const newResponse = [];
+//     const globalDiscountPercentage = globalDiscount ? globalDiscount.discount : 0;
 
-        // Get base price from product
-        const basePrice = item?.product?.prices?.price_groups?.[0]?.base_price?.price_breaks?.[0]?.price;
+//     // Process all products with global discount and margins
+//     for (const item of response) {
+//       try {
+//         // Get supplier margin for this product
+//         const supplierId = item.supplier?.supplier_id;
+//         const supplierMargin = marginsMap[supplierId] || 0;
 
-        if (!basePrice) {
+//         // Get base price from product
+//         const basePrice = item?.product?.prices?.price_groups?.[0]?.base_price?.price_breaks?.[0]?.price;
 
-          continue;
-        }
+//         if (!basePrice) {
 
-        // Step 1: Add supplier margin to base price
-        const marginedPrice = basePrice + supplierMargin;
+//           continue;
+//         }
 
-        // Step 2: Apply global discount if exists
-        let finalPrice = marginedPrice;
-        if (globalDiscountPercentage > 0) {
-          const discountAmount = (marginedPrice * globalDiscountPercentage) / 100;
-          finalPrice = marginedPrice - discountAmount;
-        }
+//         // Step 1: Add supplier margin to base price
+//         const marginedPrice = basePrice + supplierMargin;
 
-        // Step 3: Get existing product margin and add it to the globally discounted price
-        const existingMargin = existingMarginsMap[item.meta.id];
-        const marginValue = existingMargin ? existingMargin.margin : 0;
+//         // Step 2: Apply global discount if exists
+//         let finalPrice = marginedPrice;
+//         if (globalDiscountPercentage > 0) {
+//           const discountAmount = (marginedPrice * globalDiscountPercentage) / 100;
+//           finalPrice = marginedPrice - discountAmount;
+//         }
 
-        const backendUrl = req.protocol + '://' + req.get('host');
-        const resp = await fetch(`${backendUrl}/api/product-margin/add-margin`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            productId: item.meta.id,
-            margin: marginValue,
-            basePrice: finalPrice // Using globally discounted price as base
-          })
-        });
+//         // Step 3: Get existing product margin and add it to the globally discounted price
+//         const existingMargin = existingMarginsMap[item.meta.id];
+//         const marginValue = existingMargin ? existingMargin.margin : 0;
 
-        const marginResponse = await resp.json();
-        newResponse.push({
-          productId: item.meta.id,
-          originalPrice: basePrice,
-          supplierMargin: supplierMargin,
-          marginedPrice: marginedPrice,
-          globalDiscount: globalDiscountPercentage,
-          globallyDiscountedPrice: finalPrice,
-          existingMargin: marginValue,
-          response: marginResponse.data?.message || marginResponse.data
-        });
+//         const backendUrl = req.protocol + '://' + req.get('host');
+//         const resp = await fetch(`${backendUrl}/api/product-margin/add-margin`, {
+//           method: 'POST',
+//           headers: {
+//             'Content-Type': 'application/json'
+//           },
+//           body: JSON.stringify({
+//             productId: item.meta.id,
+//             margin: marginValue,
+//             basePrice: finalPrice // Using globally discounted price as base
+//           })
+//         });
 
-      } catch (error) {
-        console.error(`Error processing product ${item.meta.id}:`, error);
-        newResponse.push({
-          productId: item.meta.id,
-          error: error.message
-        });
-      }
-    }
+//         const marginResponse = await resp.json();
+//         newResponse.push({
+//           productId: item.meta.id,
+//           originalPrice: basePrice,
+//           supplierMargin: supplierMargin,
+//           marginedPrice: marginedPrice,
+//           globalDiscount: globalDiscountPercentage,
+//           globallyDiscountedPrice: finalPrice,
+//           existingMargin: marginValue,
+//           response: marginResponse.data?.message || marginResponse.data
+//         });
 
-    res.json({
-      globalDiscountApplied: globalDiscountPercentage,
-      totalProductsProcessed: newResponse.length,
-      results: newResponse
-    });
+//       } catch (error) {
+//         console.error(`Error processing product ${item.meta.id}:`, error);
+//         newResponse.push({
+//           productId: item.meta.id,
+//           error: error.message
+//         });
+//       }
+//     }
 
-  } catch (error) {
-    console.error("Error in /myapi2:", error);
-    res.status(500).json({ error: "Failed to process products with global discount" });
-  }
-});
+//     res.json({
+//       globalDiscountApplied: globalDiscountPercentage,
+//       totalProductsProcessed: newResponse.length,
+//       results: newResponse
+//     });
+
+//   } catch (error) {
+//     console.error("Error in /myapi2:", error);
+//     res.status(500).json({ error: "Failed to process products with global discount" });
+//   }
+// });
 // Updated single product endpoint with discount calculation
 app.get("/api/single-product/:id", async (req, res) => {
   const { id } = req.params;

@@ -24,7 +24,17 @@ const userSchema = new mongoose.Schema({
   type: Date,
   default: Date.now
 },
+resetCode: {
+    type: String,
+    default: undefined
+  },
+  resetCodeExpiry: {
+    type: Date,
+    default: undefined
+  },
   defaultAddress: { type: Object, default: {} },
+},{
+  timestamps: true
 });
 
 
