@@ -113,7 +113,7 @@ const signUpUser = async (req, res) => {
         .status(400)
         .json({ success: false, message: "Please enter a strong password" });
     }
-    
+
     // Hash the password
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
@@ -191,7 +191,7 @@ const deleteUser = async (req, res) => {
 export const saveAddress = async (req, res) => {
   try {
     const { defaultAddress } = req.body;
-    const { userId } = req.body; 
+    const { userId } = req.body;
 
     const user = await User.findByIdAndUpdate(
       userId,
@@ -231,12 +231,12 @@ export const updateWebUser = async (req, res) => {
     console.log(req.body, "Request Body");
     // Find the user by ID
     const user = await User.findById(userId);
-    console.log(user,"user")
+    console.log(user, "user")
     if (!user) {
       return res
         .status(404)
         .json({ success: false, message: "User not found" });
-    } 
+    }
     console.log(user.password, "Stored Hashed Password");
     console.log(currentPassword, "Provided Current Password");
 
@@ -285,10 +285,10 @@ const generateResetCode = () => {
 // Step 1: Check user and send reset code
 export const checkUser = async (req, res) => {
   const { email } = req.body;
-  
+
   try {
     const user = await User.findOne({ email });
-    
+
     if (!user) {
       return res.json({
         success: false,
@@ -317,13 +317,13 @@ export const checkUser = async (req, res) => {
       from: process.env.EMAIL_USER,
       to: email,
       subject: `Super Merch-Reset Password`,
-      html: 
-      `<div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; text-align: center; content: center " >
+      html:
+        `<div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; text-align: center; content: center " >
         <h2>Reset Password code: ${resetCode}</h2>
       <div/>`}
     console.log(`Reset code for ${email}: ${resetCode}`);
     await transporter.sendMail(mailOptions);
-    
+
     // For demo purposes, we're returning success without actually sending email
     res.json({
       success: true,
@@ -334,11 +334,13 @@ export const checkUser = async (req, res) => {
 
   } catch (error) {
     console.error("Error in checkUser:", error);
-    res.json({
+    return res.status(500).json({
       success: false,
-      message: "Error processing request"
+      message: error.message,    // <-- or error.toString()
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
+
 };
 
 // Step 2: Verify reset code
@@ -368,7 +370,7 @@ export const verifyResetCode = async (req, res) => {
       user.resetCode = undefined;
       user.resetCodeExpiry = undefined;
       await user.save();
-      
+
       return res.json({
         success: false,
         message: "Reset code has expired. Please request a new one."
