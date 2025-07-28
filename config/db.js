@@ -1,16 +1,35 @@
-  // Modify your db connection to handle serverless
-  import mongoose from "mongoose";
+import mongoose from "mongoose";
 
-  let isConnected = false;
-  const connectDB = async () => {
-    if (isConnected) return;
+let isConnected = false;
+
+const connectDB = async () => {
+  if (isConnected) return;
+  
+  try {
+    await mongoose.connect(process.env.MONGO_URI, {
+
+      serverSelectionTimeoutMS: 5000, // Timeout after 5s instead of 30s
+      socketTimeoutMS: 45000, // Close sockets after 45s of inactivity
+    });
     
-    try {
-      await mongoose.connect(process.env.MONGO_URI);
-      isConnected = true;
-      console.log("MongoDB connected");
-    } catch (err) {
-      console.error("MongoDB connection error:", err);
-    }
+    isConnected = mongoose.connection.readyState === 1;
+    console.log("MongoDB connected");
+  } catch (err) {
+    console.error("MongoDB connection error:", err);
+    isConnected = false;
+    throw err;
   }
-  export default connectDB
+};
+
+// Handle connection events
+mongoose.connection.on('disconnected', () => {
+  isConnected = false;
+  console.log('MongoDB disconnected');
+});
+
+mongoose.connection.on('error', (err) => {
+  isConnected = false;
+  console.error('MongoDB connection error:', err);
+});
+
+export default connectDB;

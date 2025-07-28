@@ -26,7 +26,9 @@ import BestSellerModel from "./models/bestSellers.js";
 connectDB();
 const app = express();
 
-app.use(cors());
+app.use(cors({
+  exposedHeaders: ['Cross-Origin-Opener-Policy', 'Cross-Origin-Embedder-Policy']
+}));
 app.use(express.json({ limit: '50mb' })); // Increase limit as needed
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 // app.use(bodyParser.json());
