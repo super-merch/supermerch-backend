@@ -1,9 +1,14 @@
-import express from 'express'
-import authMiddleware from '../middleware/authMiddleware.js';
-import { saveFavouriteProducts } from '../controllers/favouriteController.js';
+import express from 'express';
+import { 
+    saveFavouriteProducts, 
+    getFavouriteItems, 
+    deleteFavouriteItem 
+} from '../controllers/favouriteController.js';
 
 const favouriteRouter = express.Router();
 
-favouriteRouter.post('/save-favourite', authMiddleware, saveFavouriteProducts)
+favouriteRouter.post('/save-favourite', saveFavouriteProducts);
+favouriteRouter.get('/get-favourite', getFavouriteItems);
+favouriteRouter.delete('/delete-favourite', deleteFavouriteItem);
 
 export default favouriteRouter;

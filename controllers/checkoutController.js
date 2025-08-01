@@ -190,8 +190,13 @@ export const quoteSaver = async (req, res) => {
 
     let fileURL;
     if (req.file) {
-      const fileUpload = await cloudinary.uploader.upload(req.file.path, {
-        resource_type: 'image',
+      // Convert buffer to base64 data URI for Cloudinary upload
+      const b64 = Buffer.from(req.file.buffer).toString('base64');
+      const dataURI = `data:${req.file.mimetype};base64,${b64}`;
+      
+      const fileUpload = await cloudinary.uploader.upload(dataURI, {
+        resource_type: 'auto', // Changed from 'image' to 'auto' to handle different file types
+        folder: 'quotes', // Optional: organize uploads in a folder
       });
       fileURL = fileUpload.secure_url;
     }
@@ -205,15 +210,14 @@ export const quoteSaver = async (req, res) => {
       comment,
     });
 
-
     await QuoteSave.save();
 
     res.json({ success: true, message: 'Request Sent' });
   } catch (error) {
-    console.error('Error updating order status:', error);
+    console.error('Error saving quote:', error);
     res
       .status(500)
-      .json({ success: false, message: 'Error updating order status' });
+      .json({ success: false, message: 'Error saving quote' });
   }
 };
 

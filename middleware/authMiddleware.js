@@ -3,9 +3,7 @@ import jwt from "jsonwebtoken";
 // dotenv.config();
 const authMiddleware = (req, res, next) => {
   const { token } = req.headers;
-  console.log(req.headers, 'headers');
-
-  console.log(jwt, "jwt");
+  
   
 
   if (!token) {
@@ -16,7 +14,7 @@ const authMiddleware = (req, res, next) => {
   
   try {
     const token_decode = jwt.verify(token, process.env.JWT_SECRET);
-        console.log("Decoded Token:", token_decode);
+        
 
     req.body.userId = token_decode.id || token_decode._id;
     next();

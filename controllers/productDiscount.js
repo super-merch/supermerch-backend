@@ -138,7 +138,8 @@ export const addDiscount = async (req, res) => {
     
     if (globalDiscount) {
       return res.status(200).json({
-        message: `Cannot add individual product discount. Global discount of ${globalDiscount.discount}% is currently active. Please remove global discount first.`
+        status:'global',
+        message: `Cannot add product discount. Global discount of ${globalDiscount.discount}% is active. Please remove global discount first.`
       });
     }
 

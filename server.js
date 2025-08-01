@@ -23,6 +23,9 @@ import trendingModel from "./models/trending.js";
 import arrivalModel from "./models/arrival.js";
 import productDiscount from "./models/ProductDiscount.js";
 import BestSellerModel from "./models/bestSellers.js";
+import { body } from "express-validator";
+import Stripe from "stripe";
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 connectDB();
 const app = express();
 
@@ -444,13 +447,11 @@ async function getProductDiscount(productId) {
   }
 }
 function addMarginToAllPrices(product, marginAmount) {
-  // Deep clone to avoid modifying original
   const processedProduct = JSON.parse(JSON.stringify(product));
 
-  // Recursive function to process any object
-  function processObject(obj) {
+  function processObject(obj, parentKey = '') {
     if (Array.isArray(obj)) {
-      return obj.map(item => processObject(item));
+      return obj.map(item => processObject(item, parentKey));
     }
 
     if (obj && typeof obj === 'object') {
@@ -464,17 +465,22 @@ function addMarginToAllPrices(product, marginAmount) {
           // Add margin to setup costs
           processed[key] = value + marginAmount;
         } else if (key === 'price_breaks' && Array.isArray(value)) {
-          // Handle price breaks array
-          processed[key] = value.map(priceBreak => ({
-            ...priceBreak,
-            price: priceBreak.price + marginAmount
-          }));
+          // Only add margin to price_breaks if parent is base_price
+          if (parentKey === 'base_price') {
+            processed[key] = value.map(priceBreak => ({
+              ...priceBreak,
+              price: priceBreak.price + marginAmount
+            }));
+          } else {
+            // Don't add margin if parent is additions or any other key
+            processed[key] = value;
+          }
         } else if (key.toLowerCase().includes('price') && typeof value === 'number') {
           // Handle any other price-related fields
           processed[key] = value + marginAmount;
         } else {
-          // Recursively process nested objects
-          processed[key] = processObject(value);
+          // Recursively process nested objects, passing the current key as parentKey
+          processed[key] = processObject(value, key);
         }
       }
 
@@ -486,6 +492,45 @@ function addMarginToAllPrices(product, marginAmount) {
 
   return processObject(processedProduct);
 }
+// function addMarginToAllPrices(product, marginAmount) {
+//   const processedProduct = JSON.parse(JSON.stringify(product));
+//   function processObject(obj) {
+//     if (Array.isArray(obj)) {
+//       return obj.map(item => processObject(item));
+//     }
+//     if (obj && typeof obj === 'object') {
+//       const processed = {};
+
+//       for (const [key, value] of Object.entries(obj)) {
+//         if (key === 'price' && typeof value === 'number') {
+//           // Add margin to price fields
+//           processed[key] = value + marginAmount;
+//         } else if (key === 'setup' && typeof value === 'number') {
+//           // Add margin to setup costs
+//           processed[key] = value + marginAmount;
+//         } else if (key === 'price_breaks' && Array.isArray(value)) {
+//           // Handle price breaks array
+//           processed[key] = value.map(priceBreak => ({
+//             ...priceBreak,
+//             price: priceBreak.price + marginAmount
+//           }));
+//         } else if (key.toLowerCase().includes('price') && typeof value === 'number') {
+//           // Handle any other price-related fields
+//           processed[key] = value + marginAmount;
+//         } else {
+//           // Recursively process nested objects
+//           processed[key] = processObject(value);
+//         }
+//       }
+
+//       return processed;
+//     }
+
+//     return obj;
+//   }
+
+//   return processObject(processedProduct);
+// }
 // Updated client-products endpoint with discount calculation
 app.get("/api/client-products", async (req, res) => {
   const page = parseInt(req.query.page) || 1;
@@ -536,13 +581,13 @@ app.get("/api/client-products", async (req, res) => {
 
     // Fetch category filters
     const filterCategories = await supCategory.find();
-    
+
     // Add category-based filtering to ignored IDs
     if (doFilter && filterCategories.length > 0) {
       for (const category of filterCategories) {
         for (const product of prodResp.data.data) {
-          if (product.supplier.supplier_id == category.supplierId && 
-              product.product.categorisation.product_type.type_group_id === category.categoryId) {
+          if (product.supplier.supplier_id == category.supplierId &&
+            product.product.categorisation.product_type.type_group_id === category.categoryId) {
             ignoredIds.add(product.meta.id);
           }
         }
@@ -554,14 +599,14 @@ app.get("/api/client-products", async (req, res) => {
       prodResp.data.data.map(async (product) => {
         const supplierId = product.supplier?.supplier_id;
         const categoryId = product.product?.categorisation?.product_type?.type_group_id;
-        
+
         // Get supplier margin
         const supplierMargin = marginsMap[supplierId] || 0;
-        
+
         // Get category margin using composite key
         const categoryKey = `${supplierId}_${categoryId}`;
         const categoryMargin = categoryMarginsMap[categoryKey] || 0;
-        
+
         // Total margin is supplier margin + category margin
         const totalMargin = supplierMargin + categoryMargin;
 
@@ -588,7 +633,7 @@ app.get("/api/client-products", async (req, res) => {
           categoryMargin: categoryMargin,
           totalMargin: totalMargin
         };
-        
+
         processedProduct.discountInfo = {
           discount: discountPercentage,
           isGlobal: globalDiscountPercentage > 0
@@ -623,6 +668,309 @@ app.get("/api/client-products", async (req, res) => {
     res.status(500).json({ error: "Failed to fetch products" });
   }
 });
+
+app.get("/api/client-products/category", async (req, res) => {
+  const page = parseInt(req.query.page) || 1;
+  const doFilter = req.query.filter !== 'false';
+  const limit = parseInt(req.query.limit) || 10;
+  const category = req.query.category;
+  const sort = req.query.sort || '';
+
+  const AUTH_TOKEN = "NDVhOWFkYWVkZWJmYTU0Njo3OWQ4MzJlODdmMjM4ZTJhMDZlNDY3MmVlZDIwYzczYQ";
+  const headers = {
+    "x-auth-token": AUTH_TOKEN,
+    "Content-Type": "application/json",
+  };
+
+  try {
+    // Validate required parameters
+    if (!category) {
+      return res.status(400).json({ error: "Category parameter is required" });
+    }
+
+    // Fetch products with search term
+    const prodResp = await axios.post(
+      `https://api.promodata.com.au/products/search?page=${page}&items_per_page=${limit}`,
+      {
+        search_term: category
+      },
+      { headers }
+    );
+
+    // Fetch ignored products
+    const ignResp = await axios.get(`https://api.promodata.com.au/products/ignored`, {
+      headers,
+    });
+
+    // Fetch custom names
+    const customNames = await getCustomNames();
+
+    // Fetch supplier margins from your database
+    const supplierMargins = await supplierMarginModel.find();
+    const marginsMap = {};
+    supplierMargins.forEach(item => {
+      marginsMap[item.supplierId] = item.margin;
+    });
+
+    // Fetch category margins from your database
+    const categoryMargins = await categoryMarginModal.find();
+    const categoryMarginsMap = {};
+    categoryMargins.forEach(item => {
+      const key = `${item.supplierId}_${item.categoryId}`;
+      categoryMarginsMap[key] = item.margin;
+    });
+
+    // Check for global discount
+    const globalDiscount = await GlobalDiscount.findOne({ isActive: true });
+    const globalDiscountPercentage = globalDiscount ? globalDiscount.discount : 0;
+
+    const ignoredIds = new Set(
+      (ignResp.data.data || []).map(item => item.meta.id)
+    );
+
+    // Fetch category filters
+    const filterCategories = await supCategory.find();
+
+    // Add category-based filtering to ignored IDs
+    if (doFilter && filterCategories.length > 0) {
+      for (const category of filterCategories) {
+        for (const product of prodResp.data.data) {
+          if (product.supplier.supplier_id == category.supplierId &&
+            product.product.categorisation.product_type.type_group_id === category.categoryId) {
+            ignoredIds.add(product.meta.id);
+          }
+        }
+      }
+    }
+
+    // Process products and add margins to ALL price fields
+    const processedProducts = await Promise.all(
+      prodResp.data.data.map(async (product) => {
+        const supplierId = product.supplier?.supplier_id;
+        const categoryId = product.product?.categorisation?.product_type?.type_group_id;
+
+        // Get supplier margin
+        const supplierMargin = marginsMap[supplierId] || 0;
+
+        // Get category margin using composite key
+        const categoryKey = `${supplierId}_${categoryId}`;
+        const categoryMargin = categoryMarginsMap[categoryKey] || 0;
+
+        // Total margin is supplier margin + category margin
+        const totalMargin = supplierMargin + categoryMargin;
+
+        // Apply total margin to all price-related fields
+        let processedProduct = addMarginToAllPrices(product, totalMargin);
+
+        // Then apply discount
+        let discountPercentage = globalDiscountPercentage;
+
+        // If no global discount, check for individual product discount
+        if (!globalDiscountPercentage) {
+          const productDiscountInfo = await getProductDiscount(product.meta.id);
+          discountPercentage = productDiscountInfo.discount;
+        }
+
+        // Apply discount to all prices
+        if (discountPercentage > 0) {
+          processedProduct = applyDiscountToProduct(processedProduct, discountPercentage);
+        }
+
+        // Add margin and discount metadata to product
+        processedProduct.marginInfo = {
+          supplierMargin: supplierMargin,
+          categoryMargin: categoryMargin,
+          totalMargin: totalMargin
+        };
+
+        processedProduct.discountInfo = {
+          discount: discountPercentage,
+          isGlobal: globalDiscountPercentage > 0
+        };
+
+        return processedProduct;
+      })
+    );
+
+    // Apply custom names to products
+    const productsWithCustomNames = applyCustomNamesToProducts(processedProducts, customNames);
+
+    if (doFilter) {
+      const filteredProducts = productsWithCustomNames.filter(
+        p => !ignoredIds.has(p.meta.id)
+      );
+
+      res.json({
+        ...prodResp.data,
+        data: filteredProducts
+      });
+    } else {
+      res.json({
+        ...prodResp.data,
+        data: productsWithCustomNames,
+        ignoredProductIds: Array.from(ignoredIds)
+      });
+    }
+
+  } catch (error) {
+    console.error("Error in /api/client-products/category:", error);
+
+    // Provide more specific error messages
+    if (error.response) {
+      return res.status(error.response.status).json({
+        error: "External API error",
+        details: error.response.data
+      });
+    }
+
+    res.status(500).json({ error: "Failed to fetch products" });
+  }
+});
+
+app.get("/api/client-products/search", async (req, res) => {
+  const page = parseInt(req.query.page) || 1;
+  const doFilter = req.query.filter !== 'false';
+  const searchTerm = req.query.searchTerm || '';
+  const limit = parseInt(req.query.limit) || 9; // Changed to parse as integer and default to 9
+
+  const AUTH_TOKEN = "NDVhOWFkYWVkZWJmYTU0Njo3OWQ4MzJlODdmMjM4ZTJhMDZlNDY3MmVlZDIwYzczYQ";
+  const headers = {
+    "x-auth-token": AUTH_TOKEN,
+    "Content-Type": "application/json",
+  };
+
+  try {
+    // Fetch products with proper pagination
+    const prodResp = await axios.post(`https://api.promodata.com.au/products/search?page=${page}&items_per_page=${limit}`,
+      {
+        search_term: searchTerm
+      },
+      {
+        headers,
+      });
+
+    // Fetch ignored products
+    const ignResp = await axios.get(`https://api.promodata.com.au/products/ignored`, {
+      headers,
+    });
+
+    // Fetch custom names
+    const customNames = await getCustomNames();
+
+    // Fetch supplier margins from your database
+    const supplierMargins = await supplierMarginModel.find();
+    const marginsMap = {};
+    supplierMargins.forEach(item => {
+      marginsMap[item.supplierId] = item.margin;
+    });
+
+    // Fetch category margins from your database
+    const categoryMargins = await categoryMarginModal.find();
+    const categoryMarginsMap = {};
+    categoryMargins.forEach(item => {
+      // Create a composite key: supplierId + categoryId
+      const key = `${item.supplierId}_${item.categoryId}`;
+      categoryMarginsMap[key] = item.margin;
+    });
+
+    // Check for global discount
+    const globalDiscount = await GlobalDiscount.findOne({ isActive: true });
+    const globalDiscountPercentage = globalDiscount ? globalDiscount.discount : 0;
+
+    const ignoredIds = new Set(
+      (ignResp.data.data || []).map(item => item.meta.id)
+    );
+
+    // Fetch category filters
+    const filterCategories = await supCategory.find();
+
+    // Add category-based filtering to ignored IDs
+    if (doFilter && filterCategories.length > 0) {
+      for (const category of filterCategories) {
+        for (const product of prodResp.data.data) {
+          if (product.supplier.supplier_id == category.supplierId &&
+            product.product.categorisation.product_type.type_group_id === category.categoryId) {
+            ignoredIds.add(product.meta.id);
+          }
+        }
+      }
+    }
+
+    // Process products and add margins to ALL price fields
+    const processedProducts = await Promise.all(
+      prodResp.data.data.map(async (product) => {
+        const supplierId = product.supplier?.supplier_id;
+        const categoryId = product.product?.categorisation?.product_type?.type_group_id;
+
+        // Get supplier margin
+        const supplierMargin = marginsMap[supplierId] || 0;
+
+        // Get category margin using composite key
+        const categoryKey = `${supplierId}_${categoryId}`;
+        const categoryMargin = categoryMarginsMap[categoryKey] || 0;
+
+        // Total margin is supplier margin + category margin
+        const totalMargin = supplierMargin + categoryMargin;
+
+        // Apply total margin to all price-related fields
+        let processedProduct = addMarginToAllPrices(product, totalMargin);
+
+        // Then apply discount
+        let discountPercentage = globalDiscountPercentage;
+
+        // If no global discount, check for individual product discount
+        if (!globalDiscountPercentage) {
+          const productDiscountInfo = await getProductDiscount(product.meta.id);
+          discountPercentage = productDiscountInfo.discount;
+        }
+
+        // Apply discount to all prices
+        if (discountPercentage > 0) {
+          processedProduct = applyDiscountToProduct(processedProduct, discountPercentage);
+        }
+
+        // Add margin and discount metadata to product
+        processedProduct.marginInfo = {
+          supplierMargin: supplierMargin,
+          categoryMargin: categoryMargin,
+          totalMargin: totalMargin
+        };
+
+        processedProduct.discountInfo = {
+          discount: discountPercentage,
+          isGlobal: globalDiscountPercentage > 0
+        };
+
+        return processedProduct;
+      })
+    );
+
+    // Apply custom names to products
+    const productsWithCustomNames = applyCustomNamesToProducts(processedProducts, customNames);
+
+    if (doFilter) {
+      const filteredProducts = productsWithCustomNames.filter(
+        p => !ignoredIds.has(p.meta.id)
+      );
+
+      res.json({
+        ...prodResp.data,
+        data: filteredProducts
+      });
+    } else {
+      res.json({
+        ...prodResp.data,
+        data: productsWithCustomNames,
+        ignoredProductIds: Array.from(ignoredIds)
+      });
+    }
+
+  } catch (error) {
+    console.error("Error in /api/client-products/search:", error);
+    res.status(500).json({ error: "Failed to fetch products" });
+  }
+});
+
 app.get("/api/client-products-trending", async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const doFilter = req.query.filter !== 'false';
@@ -635,8 +983,8 @@ app.get("/api/client-products-trending", async (req, res) => {
   try {
     // First, get trending product IDs from the database
     const trendingProducts = await trendingModel.find()
-      
-    
+
+
     if (trendingProducts.length === 0) {
       return res.json({
         data: [],
@@ -652,7 +1000,7 @@ app.get("/api/client-products-trending", async (req, res) => {
     const productIds = trendingProducts.map(item => item.productId); // Adjust field name as per your model
 
     // Fetch individual products using the specific product API
-    const productPromises = productIds.map(id => 
+    const productPromises = productIds.map(id =>
       axios.get(`https://api.promodata.com.au/products/${id}`, { headers })
         .catch(error => {
           console.error(`Error fetching product ${id}:`, error.message);
@@ -661,7 +1009,7 @@ app.get("/api/client-products-trending", async (req, res) => {
     );
 
     const productResponses = await Promise.all(productPromises);
-    
+
     // Filter out failed requests and extract product data
     const fetchedProducts = productResponses
       .filter(response => response !== null)
@@ -701,13 +1049,13 @@ app.get("/api/client-products-trending", async (req, res) => {
 
     // Fetch category filters
     const filterCategories = await supCategory.find();
-    
+
     // Add category-based filtering to ignored IDs
     if (doFilter && filterCategories.length > 0) {
       for (const category of filterCategories) {
         for (const product of fetchedProducts) {
-          if (product.supplier?.supplier_id == category.supplierId && 
-              product.product?.categorisation?.product_type?.type_group_id === category.categoryId) {
+          if (product.supplier?.supplier_id == category.supplierId &&
+            product.product?.categorisation?.product_type?.type_group_id === category.categoryId) {
             ignoredIds.add(product.meta.id);
           }
         }
@@ -719,14 +1067,14 @@ app.get("/api/client-products-trending", async (req, res) => {
       fetchedProducts.map(async (product) => {
         const supplierId = product.supplier?.supplier_id;
         const categoryId = product.product?.categorisation?.product_type?.type_group_id;
-        
+
         // Get supplier margin
         const supplierMargin = marginsMap[supplierId] || 0;
-        
+
         // Get category margin using composite key
         const categoryKey = `${supplierId}_${categoryId}`;
         const categoryMargin = categoryMarginsMap[categoryKey] || 0;
-        
+
         // Total margin is supplier margin + category margin
         const totalMargin = supplierMargin + categoryMargin;
 
@@ -753,7 +1101,7 @@ app.get("/api/client-products-trending", async (req, res) => {
           categoryMargin: categoryMargin,
           totalMargin: totalMargin
         };
-        
+
         processedProduct.discountInfo = {
           discount: discountPercentage,
           isGlobal: globalDiscountPercentage > 0
@@ -813,8 +1161,8 @@ app.get("/api/client-products-newArrival", async (req, res) => {
   try {
     // First, get trending product IDs from the database
     const trendingProducts = await arrivalModel.find()
-      
-    
+
+
     if (trendingProducts.length === 0) {
       return res.json({
         data: [],
@@ -830,7 +1178,7 @@ app.get("/api/client-products-newArrival", async (req, res) => {
     const productIds = trendingProducts.map(item => item.productId); // Adjust field name as per your model
 
     // Fetch individual products using the specific product API
-    const productPromises = productIds.map(id => 
+    const productPromises = productIds.map(id =>
       axios.get(`https://api.promodata.com.au/products/${id}`, { headers })
         .catch(error => {
           console.error(`Error fetching product ${id}:`, error.message);
@@ -839,7 +1187,7 @@ app.get("/api/client-products-newArrival", async (req, res) => {
     );
 
     const productResponses = await Promise.all(productPromises);
-    
+
     // Filter out failed requests and extract product data
     const fetchedProducts = productResponses
       .filter(response => response !== null)
@@ -879,13 +1227,13 @@ app.get("/api/client-products-newArrival", async (req, res) => {
 
     // Fetch category filters
     const filterCategories = await supCategory.find();
-    
+
     // Add category-based filtering to ignored IDs
     if (doFilter && filterCategories.length > 0) {
       for (const category of filterCategories) {
         for (const product of fetchedProducts) {
-          if (product.supplier?.supplier_id == category.supplierId && 
-              product.product?.categorisation?.product_type?.type_group_id === category.categoryId) {
+          if (product.supplier?.supplier_id == category.supplierId &&
+            product.product?.categorisation?.product_type?.type_group_id === category.categoryId) {
             ignoredIds.add(product.meta.id);
           }
         }
@@ -897,14 +1245,14 @@ app.get("/api/client-products-newArrival", async (req, res) => {
       fetchedProducts.map(async (product) => {
         const supplierId = product.supplier?.supplier_id;
         const categoryId = product.product?.categorisation?.product_type?.type_group_id;
-        
+
         // Get supplier margin
         const supplierMargin = marginsMap[supplierId] || 0;
-        
+
         // Get category margin using composite key
         const categoryKey = `${supplierId}_${categoryId}`;
         const categoryMargin = categoryMarginsMap[categoryKey] || 0;
-        
+
         // Total margin is supplier margin + category margin
         const totalMargin = supplierMargin + categoryMargin;
 
@@ -931,7 +1279,7 @@ app.get("/api/client-products-newArrival", async (req, res) => {
           categoryMargin: categoryMargin,
           totalMargin: totalMargin
         };
-        
+
         processedProduct.discountInfo = {
           discount: discountPercentage,
           isGlobal: globalDiscountPercentage > 0
@@ -990,11 +1338,11 @@ app.get("/api/client-products-discounted", async (req, res) => {
 
   try {
     // First, get trending product IDs from the database
-    const trendingProducts = await productDiscount.find({$expr: {$gt: ["$discount", 0]}});
+    const trendingProducts = await productDiscount.find({ $expr: { $gt: ["$discount", 0] } });
     // const trendingProducts = trendingProduct.filter(item => item.discount > 0);
-    
-      
-    
+
+
+
     if (trendingProducts.length === 0) {
       return res.json({
         data: [],
@@ -1010,7 +1358,7 @@ app.get("/api/client-products-discounted", async (req, res) => {
     const productIds = trendingProducts.map(item => item.productId); // Adjust field name as per your model
 
     // Fetch individual products using the specific product API
-    const productPromises = productIds.map(id => 
+    const productPromises = productIds.map(id =>
       axios.get(`https://api.promodata.com.au/products/${id}`, { headers })
         .catch(error => {
           console.error(`Error fetching product ${id}:`, error.message);
@@ -1019,7 +1367,7 @@ app.get("/api/client-products-discounted", async (req, res) => {
     );
 
     const productResponses = await Promise.all(productPromises);
-    
+
     // Filter out failed requests and extract product data
     const fetchedProducts = productResponses
       .filter(response => response !== null)
@@ -1059,13 +1407,13 @@ app.get("/api/client-products-discounted", async (req, res) => {
 
     // Fetch category filters
     const filterCategories = await supCategory.find();
-    
+
     // Add category-based filtering to ignored IDs
     if (doFilter && filterCategories.length > 0) {
       for (const category of filterCategories) {
         for (const product of fetchedProducts) {
-          if (product.supplier?.supplier_id == category.supplierId && 
-              product.product?.categorisation?.product_type?.type_group_id === category.categoryId) {
+          if (product.supplier?.supplier_id == category.supplierId &&
+            product.product?.categorisation?.product_type?.type_group_id === category.categoryId) {
             ignoredIds.add(product.meta.id);
           }
         }
@@ -1077,14 +1425,14 @@ app.get("/api/client-products-discounted", async (req, res) => {
       fetchedProducts.map(async (product) => {
         const supplierId = product.supplier?.supplier_id;
         const categoryId = product.product?.categorisation?.product_type?.type_group_id;
-        
+
         // Get supplier margin
         const supplierMargin = marginsMap[supplierId] || 0;
-        
+
         // Get category margin using composite key
         const categoryKey = `${supplierId}_${categoryId}`;
         const categoryMargin = categoryMarginsMap[categoryKey] || 0;
-        
+
         // Total margin is supplier margin + category margin
         const totalMargin = supplierMargin + categoryMargin;
 
@@ -1111,7 +1459,7 @@ app.get("/api/client-products-discounted", async (req, res) => {
           categoryMargin: categoryMargin,
           totalMargin: totalMargin
         };
-        
+
         processedProduct.discountInfo = {
           discount: discountPercentage,
           isGlobal: globalDiscountPercentage > 0
@@ -1171,9 +1519,9 @@ app.get("/api/client-products-bestSellers", async (req, res) => {
   try {
     // First, get trending product IDs from the database
     const trendingProducts = await BestSellerModel.find()
-    
-      
-    
+
+
+
     if (trendingProducts.length === 0) {
       return res.json({
         data: [],
@@ -1189,7 +1537,7 @@ app.get("/api/client-products-bestSellers", async (req, res) => {
     const productIds = trendingProducts.map(item => item.productId); // Adjust field name as per your model
 
     // Fetch individual products using the specific product API
-    const productPromises = productIds.map(id => 
+    const productPromises = productIds.map(id =>
       axios.get(`https://api.promodata.com.au/products/${id}`, { headers })
         .catch(error => {
           console.error(`Error fetching product ${id}:`, error.message);
@@ -1198,7 +1546,7 @@ app.get("/api/client-products-bestSellers", async (req, res) => {
     );
 
     const productResponses = await Promise.all(productPromises);
-    
+
     // Filter out failed requests and extract product data
     const fetchedProducts = productResponses
       .filter(response => response !== null)
@@ -1238,13 +1586,13 @@ app.get("/api/client-products-bestSellers", async (req, res) => {
 
     // Fetch category filters
     const filterCategories = await supCategory.find();
-    
+
     // Add category-based filtering to ignored IDs
     if (doFilter && filterCategories.length > 0) {
       for (const category of filterCategories) {
         for (const product of fetchedProducts) {
-          if (product.supplier?.supplier_id == category.supplierId && 
-              product.product?.categorisation?.product_type?.type_group_id === category.categoryId) {
+          if (product.supplier?.supplier_id == category.supplierId &&
+            product.product?.categorisation?.product_type?.type_group_id === category.categoryId) {
             ignoredIds.add(product.meta.id);
           }
         }
@@ -1256,14 +1604,14 @@ app.get("/api/client-products-bestSellers", async (req, res) => {
       fetchedProducts.map(async (product) => {
         const supplierId = product.supplier?.supplier_id;
         const categoryId = product.product?.categorisation?.product_type?.type_group_id;
-        
+
         // Get supplier margin
         const supplierMargin = marginsMap[supplierId] || 0;
-        
+
         // Get category margin using composite key
         const categoryKey = `${supplierId}_${categoryId}`;
         const categoryMargin = categoryMarginsMap[categoryKey] || 0;
-        
+
         // Total margin is supplier margin + category margin
         const totalMargin = supplierMargin + categoryMargin;
 
@@ -1290,7 +1638,7 @@ app.get("/api/client-products-bestSellers", async (req, res) => {
           categoryMargin: categoryMargin,
           totalMargin: totalMargin
         };
-        
+
         processedProduct.discountInfo = {
           discount: discountPercentage,
           isGlobal: globalDiscountPercentage > 0
@@ -1386,17 +1734,17 @@ app.get("/api/client-products-bestSellers", async (req, res) => {
 //   const supplierId = item.supplier?.supplier_id;
 //   // FIX: Use correct path to category ID
 //   const categoryId = item.product?.categorisation?.product_type?.type_group_id;
-  
+
 //   // Get supplier margin
 //   const supplierMargin = supplierMarginsMap[supplierId] || 0;
-  
+
 //   // Get category margin using correct key format (underscore, not hyphen)
 //   const categoryKey = `${supplierId}_${categoryId}`;
 //   const categoryMargin = categoryMarginsMap[categoryKey] || 0;
-  
+
 //   // FIX: Add both margins together (like in /api/client-products)
 //   const totalMargin = supplierMargin + categoryMargin;
-  
+
 //   return totalMargin;
 // };
 
@@ -1633,9 +1981,9 @@ app.get("/api/single-product/:id", async (req, res) => {
     const supplierMarginAmount = supplierMargin?.margin || 0;
 
     // Fetch category margin for this product's supplier and category
-    const categoryMargin = await categoryMarginModal.findOne({ 
-      supplierId: supplierId, 
-      categoryId: categoryId 
+    const categoryMargin = await categoryMarginModal.findOne({
+      supplierId: supplierId,
+      categoryId: categoryId
     });
     const categoryMarginAmount = categoryMargin?.margin || 0;
 
@@ -1659,7 +2007,7 @@ app.get("/api/single-product/:id", async (req, res) => {
       categoryMargin: categoryMarginAmount,
       totalMargin: totalMargin
     };
-    
+
     processedProduct.discountInfo = discountInfo;
 
     // Apply custom name if exists
@@ -1729,13 +2077,13 @@ app.get("/api/params-products", async (req, res) => {
 
     // Fetch category filters and add category-based filtering to ignored IDs
     const filterCategories = await supCategory.find();
-    
+
     // Add category-based filtering to ignored IDs
     if (doFilter && filterCategories.length > 0) {
       for (const category of filterCategories) {
         for (const product of response.data.data) {
-          if (product.supplier.supplier_id == category.supplierId && 
-              product.product.categorisation.product_type.type_group_id === category.categoryId) {
+          if (product.supplier.supplier_id == category.supplierId &&
+            product.product.categorisation.product_type.type_group_id === category.categoryId) {
             ignoredIds.add(product.meta.id);
           }
         }
@@ -1747,14 +2095,14 @@ app.get("/api/params-products", async (req, res) => {
       response.data.data.map(async (product) => {
         const supplierId = String(product.supplier.supplier_id);
         const categoryId = product.product?.categorisation?.product_type?.type_group_id;
-        
+
         // Get supplier margin
         const supplierMargin = marginsMap[supplierId] || 0;
-        
+
         // Get category margin using composite key
         const categoryKey = `${supplierId}_${categoryId}`;
         const categoryMargin = categoryMarginsMap[categoryKey] || 0;
-        
+
         // Total margin is supplier margin + category margin
         const totalMargin = supplierMargin + categoryMargin;
 
@@ -1781,7 +2129,7 @@ app.get("/api/params-products", async (req, res) => {
           categoryMargin: categoryMargin,
           totalMargin: totalMargin
         };
-        
+
         processedProduct.discountInfo = {
           discount: discountPercentage,
           isGlobal: globalDiscountPercentage > 0
@@ -1852,7 +2200,7 @@ app.post("/api/ignore-product", async (req, res) => {
         },
       }
     );
-    res.json(response.data.description);  
+    res.json(response.data.description);
   } catch (error) {
     res.status(500).json({ error: "Failed to ignore product" });
   }
@@ -1903,6 +2251,7 @@ app.get("/api/category-products", async (req, res) => {
 
 
 
+
 // ***************************************************************
 app.get("/api/v1-categories", async (req, res) => {
   try {
@@ -1923,7 +2272,78 @@ app.get("/api/v1-categories", async (req, res) => {
 // *****************************************************************
 
 
+app.post('/create-checkout-session', async (req, res) => {
+  const { products, gst, coupon } = req.body // Get GST and coupon from frontend
 
+  // Calculate the total before GST
+  const subtotal = products.reduce((sum, product) => sum + (product.price * product.quantity), 0);
+
+  // Add product line items
+  const lineItems = products.map((product) => ({
+    price_data: {
+      currency: 'usd',
+      product_data: {
+        name: product.name,
+        images: [product.image],
+      },
+      unit_amount: Math.round(product.price * 100),
+    },
+    quantity: product.quantity,
+  }));
+
+  // Add GST as a separate line item if it exists
+  if (gst && gst > 0) {
+    lineItems.push({
+      price_data: {
+        currency: 'usd',
+        product_data: {
+          name: 'GST (10%)',
+          description: 'Goods and Services Tax',
+        },
+        unit_amount: Math.round(gst * 100), // Convert GST amount to cents
+      },
+      quantity: 1,
+    });
+  }
+
+  // Calculate total after GST
+  const totalWithGst = subtotal + (gst || 0);
+
+  // Create discount object if coupon is applied
+  let discounts = [];
+  if (coupon && coupon.discountAmount && coupon.discountAmount > 0) {
+    // Create a coupon in Stripe (you can also create this beforehand and store the ID)
+    const stripeCoupon = await stripe.coupons.create({
+      name: `Discount - ${coupon.code}`,
+      amount_off: Math.round(coupon.discountAmount * 100), // Convert to cents
+      currency: 'usd',
+      duration: 'once',
+    });
+
+    discounts = [{
+      coupon: stripeCoupon.id
+    }];
+  }
+
+  const origin = process.env.FRONTEND_URL || 'http://localhost:5173';
+
+  const sessionConfig = {
+    payment_method_types: ['card'],
+    line_items: lineItems,
+    mode: 'payment',
+    success_url: `${origin}/success?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${origin}/cancel`,
+  };
+
+  // Add discounts if coupon is applied
+  if (discounts.length > 0) {
+    sessionConfig.discounts = discounts;
+  }
+
+  const session = await stripe.checkout.sessions.create(sessionConfig);
+
+  res.json({ id: session.id });
+});
 
 
 // console.log(`MONGO_URI: ${process.env.MONGO_URI}`);
