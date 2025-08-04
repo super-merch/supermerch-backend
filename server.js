@@ -1966,37 +1966,41 @@ app.get("/api/single-product/:id", async (req, res) => {
   };
 
   try {
+    // Fetch product details first
     const response = await axios.get(
       `https://api.promodata.com.au/products/${id}`,
       { headers }
     );
 
-    // Get product details
     const product = response.data.data;
     const supplierId = product.supplier.supplier_id;
     const categoryId = product.product?.categorisation?.product_type?.type_group_id;
 
-    // Fetch supplier margin for this product's supplier
-    const supplierMargin = await supplierMarginModel.findOne({ supplierId: supplierId });
+    // Execute all database queries and function calls in parallel
+    const [
+      supplierMargin,
+      categoryMargin,
+      discountInfo,
+      customNames
+    ] = await Promise.all([
+      supplierMarginModel.findOne({ supplierId: supplierId }),
+      categoryMarginModal.findOne({
+        supplierId: supplierId,
+        categoryId: categoryId
+      }),
+      getProductDiscount(id),
+      getCustomNames()
+    ]);
+
+    // Process margins
     const supplierMarginAmount = supplierMargin?.margin || 0;
-
-    // Fetch category margin for this product's supplier and category
-    const categoryMargin = await categoryMarginModal.findOne({
-      supplierId: supplierId,
-      categoryId: categoryId
-    });
     const categoryMarginAmount = categoryMargin?.margin || 0;
-
-    // Total margin is supplier margin + category margin
     const totalMargin = supplierMarginAmount + categoryMarginAmount;
 
     // Apply total margin first
     let processedProduct = addMarginToAllPrices(product, totalMargin);
 
-    // Get discount for this product
-    const discountInfo = await getProductDiscount(id);
-
-    // Apply discount to all prices
+    // Apply discount to all prices if discount exists
     if (discountInfo.discount > 0) {
       processedProduct = applyDiscountToProduct(processedProduct, discountInfo.discount);
     }
@@ -2011,7 +2015,6 @@ app.get("/api/single-product/:id", async (req, res) => {
     processedProduct.discountInfo = discountInfo;
 
     // Apply custom name if exists
-    const customNames = await getCustomNames();
     const productWithCustomName = applyCustomNamesToProducts([processedProduct], customNames)[0];
 
     res.json({
