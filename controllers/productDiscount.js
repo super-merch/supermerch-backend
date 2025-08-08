@@ -1,8 +1,9 @@
 import ProductDiscount from "../models/ProductDiscount.js";
-// import Admin from '../models/Admin.js'
-// import bcrypt from "bcryptjs";
+import Admin from '../models/Admin.js'
+import bcrypt from "bcryptjs";
 import GlobalDiscount from "../models/GlobalDiscount.js";
 import jwt from "jsonwebtoken";
+import nodemailer from 'nodemailer';
 
 export const addGlobalDiscount = async (req, res) => {
   const { discount } = req.body;
@@ -342,29 +343,128 @@ async function getProductDiscount(productId) {
 
 
 
-// API  For admin Logins
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER, // Your Gmail
+    pass: process.env.EMAIL_PASS  // Your Gmail App Password
+  }
+});
+
+// Updated login function
 export const loginAdmin = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    if (
-      email === process.env.ADMIN_EMAIL &&
-      password === process.env.ADMIN_PASSWORD
-    ) {
-      const token = jwt.sign(
-        { email: process.env.ADMIN_EMAIL, role: "admin" },
-        process.env.JWT_SECRET,
-        { expiresIn: "30d" }
-      );
-      res.json({
-        success: true,
-        token,
-        email: process.env.ADMIN_EMAIL,
-        message: "Login successful!",
-      });
-    } else {
-      res.status(400).json({ success: false, message: "Invalid Credientials" });
+    // Find admin in database
+    const admin = await Admin.findOne({ email });
+    
+    if (!admin) {
+      return res.status(400).json({ success: false, message: "Invalid Credentials" });
     }
+
+    // Check password
+    const isMatch = await bcrypt.compare(password, admin.password);
+    
+    if (!isMatch) {
+      return res.status(400).json({ success: false, message: "Invalid Credentials" });
+    }
+
+    const token = jwt.sign(
+      { email: admin.email, role: "admin", id: admin._id },
+      process.env.JWT_SECRET,
+      { expiresIn: "30d" }
+    );
+
+    res.json({
+      success: true,
+      token,
+      email: admin.email,
+      message: "Login successful!",
+    });
+
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Send OTP for password change
+export const sendOTP = async (req, res) => {
+  try {
+    const admin = await Admin.findOne({});
+    
+    if (!admin) {
+      return res.status(404).json({ success: false, message: "Admin not found" });
+    }
+
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    
+    // Set OTP expiry (5 minutes)
+    const otpExpires = new Date(Date.now() + 5 * 60 * 1000);
+    
+    // Update admin with OTP
+    admin.otp = otp;
+    admin.otpExpires = otpExpires;
+    await admin.save();
+
+    // Send email
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: admin.email,
+      subject: 'Password Change OTP',
+      text: `Your OTP for password change is: ${otp}. This OTP will expire in 5 minutes.`
+    };
+
+    await transporter.sendMail(mailOptions);
+
+    res.json({
+      success: true,
+      message: "OTP sent to your email"
+    });
+
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Verify OTP and change password
+export const changePassword = async (req, res) => {
+  try {
+    const { otp, newPassword } = req.body;
+
+    const admin = await Admin.findOne({});
+    
+    if (!admin) {
+      return res.status(404).json({ success: false, message: "Admin not found" });
+    }
+
+    // Check if OTP exists and is not expired
+    if (!admin.otp || !admin.otpExpires || admin.otpExpires < new Date()) {
+      return res.status(400).json({ success: false, message: "OTP expired or invalid" });
+    }
+
+    // Verify OTP
+    if (admin.otp !== otp) {
+      return res.status(400).json({ success: false, message: "Invalid OTP" });
+    }
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    
+    // Update password and clear OTP
+    admin.password = hashedPassword;
+    admin.otp = null;
+    admin.otpExpires = null;
+    await admin.save();
+
+    res.json({
+      success: true,
+      message: "Password changed successfully"
+    });
+
   } catch (error) {
     console.log(error);
     res.status(500).json({ success: false, message: error.message });

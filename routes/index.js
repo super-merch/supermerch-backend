@@ -14,6 +14,7 @@ import marginRoutes from './marginRoutes.js';
 import subscriptionRoutes from './subscriptionRoutes.js';
 import categoryRouter from './supplierCategoryRoutes.js';
 import coupenRouter from './coupenRouter.js';
+import shippingRouter from './shippingRouter.js';
 // >>>>>>> 9676ff4 (Initial commit)
 const router = express.Router();
 
@@ -28,6 +29,7 @@ router.use('/newArrival',newArrival)
 router.use('/bestSeller',bestSeller)
 router.use('/subscription',subscriptionRoutes)
 router.use('/coupen',coupenRouter)
+router.use('/shipping',shippingRouter)
 // <<<<<<< HEAD
 // =======
 router.use('/product-margin', marginRoutes);

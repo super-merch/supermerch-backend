@@ -36,8 +36,55 @@ const getBlogs = async (req, res) => {
         res.status(500).json({ message: error.message });
     }
 }
+const deleteBlog = async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        if (!id) {
+            return res.status(400).json({ success: false, message: "Blog ID is required" });
+        }
 
-export { saveBlog, getBlogs }
+        // Find the blog first to get the image URL for cleanup
+        const blog = await Blog.findById(id);
+        if (!blog) {
+            return res.status(404).json({ success: false, message: "Blog not found" });
+        }
+
+        // Extract public_id from Cloudinary URL for cleanup
+        if (blog.image) {
+            try {
+                const imageUrl = blog.image;
+                const publicIdMatch = imageUrl.match(/\/v\d+\/(.+?)\./);
+                if (publicIdMatch && publicIdMatch[1]) {
+                    const publicId = publicIdMatch[1];
+                    await cloudinary.uploader.destroy(publicId);
+                    console.log(`Deleted image: ${publicId}`);
+                }
+            } catch (imageError) {
+                console.log("Error deleting image from Cloudinary:", imageError.message);
+                // Continue with blog deletion even if image deletion fails
+            }
+        }
+
+        // Delete the blog from database
+        await Blog.findByIdAndDelete(id);
+        
+        res.status(200).json({ 
+            success: true, 
+            message: "Blog deleted successfully" 
+        });
+
+    } catch (error) {
+        console.error("Delete blog error:", error);
+        res.status(500).json({ 
+            success: false, 
+            message: error.message 
+        });
+    }
+};
+
+
+export { saveBlog, getBlogs, deleteBlog };
 
 
 // const saveBlog = asyncHandler(async (req, res) => {

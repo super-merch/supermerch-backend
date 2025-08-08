@@ -52,7 +52,6 @@ const loginUser = async (req, res) => {
 
     // Find user by email
     const user = await User.findOne({ email });
-    console.log(user, "user");
 
     if (!user) {
       return res
@@ -298,7 +297,7 @@ export const checkUser = async (req, res) => {
 
     // Generate reset code and expiry time (60 seconds from now)
     const resetCode = generateResetCode();
-    const resetCodeExpiry = new Date(Date.now() + 120 * 1000); // 60 seconds
+    const resetCodeExpiry = new Date(Date.now() + 600 * 1000); // 60 seconds
 
     // Save reset code and expiry to user
     user.resetCode = resetCode;
@@ -320,6 +319,7 @@ export const checkUser = async (req, res) => {
       html:
         `<div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; text-align: center; content: center " >
         <h2>Reset Password code: ${resetCode}</h2>
+        <p>Use this code to reset your password. It will expire in 10 minutes.</p>
       <div/>`}
     console.log(`Reset code for ${email}: ${resetCode}`);
     await transporter.sendMail(mailOptions);

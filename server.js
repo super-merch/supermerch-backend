@@ -961,7 +961,8 @@ app.get("/api/client-products/search", async (req, res) => {
       res.json({
         ...prodResp.data,
         data: productsWithCustomNames,
-        ignoredProductIds: Array.from(ignoredIds)
+        ignoredProductIds: Array.from(ignoredIds),
+        count:prodResp.data.item_count,
       });
     }
 
@@ -2276,7 +2277,7 @@ app.get("/api/v1-categories", async (req, res) => {
 
 
 app.post('/create-checkout-session', async (req, res) => {
-  const { products, gst, coupon } = req.body // Get GST and coupon from frontend
+  const { products, gst, coupon,shipping } = req.body // Get GST and coupon from frontend
 
   // Calculate the total before GST
   const subtotal = products.reduce((sum, product) => sum + (product.price * product.quantity), 0);
@@ -2293,6 +2294,19 @@ app.post('/create-checkout-session', async (req, res) => {
     },
     quantity: product.quantity,
   }));
+  if (shipping && shipping > 0) {
+    lineItems.push({
+      price_data: {
+        currency: 'usd',
+        product_data: {
+          name: 'Shipping',
+          description: 'Shipping charges',
+        },
+        unit_amount: Math.round(shipping * 100), // Convert to cents
+      },
+      quantity: 1,
+    });
+  }
 
   // Add GST as a separate line item if it exists
   if (gst && gst > 0) {
@@ -2356,7 +2370,7 @@ const PORT = process.env.PORT || 5000
 app.get("/", (req, res) => res.send("API WORKING"));
 
 export default app;
-// app.listen(PORT, () => {
-//   console.log(`Server is running on port ${PORT}`);
-// });
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
+});
 // akash 
