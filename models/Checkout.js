@@ -40,7 +40,6 @@ const CheckoutSchema = new mongoose.Schema({
   userId: { 
     type: Types.ObjectId, 
     ref: "User", 
-    required: true 
   },
   user: {
     firstName: { type: String, required: true },
@@ -59,7 +58,7 @@ const CheckoutSchema = new mongoose.Schema({
   total: { type: Number, required: true },
   orderDate: { type: Date, default: Date.now },
   status: { type: String, default: "Pending" },
-  userId: { type: String, required: true },
+  userId: { type: String, },
 });
 
 
