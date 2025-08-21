@@ -10,6 +10,9 @@ import {
   updateStatus,
   quoteSaver,
   getAllQuotes,
+  deleteOrder,
+  updateOrderStatus,
+  sendDeliveryEmail,
 } from '../controllers/checkoutController.js';
 import authMiddleware, { optionalAuth } from '../middleware/authMiddleware.js';
 import adminMiddlewere from '../middleware/adminMiddlewere.js';
@@ -31,8 +34,11 @@ router.get('/user-order', authMiddleware, userOrders);
 router.get('/list-quote', adminMiddlewere, getAllQuotes);
 
 
-router.put('/checkout/:id', authMiddleware, updateCheckoutDetails);
+router.put('/checkout/:id', updateCheckoutDetails);
 
 router.put('/status/:id', adminMiddlewere, updateStatus);
+router.delete('/delete/:id', deleteOrder);
+router.put('/update-payment', updateOrderStatus);
+router.post('/send-email', sendDeliveryEmail);
 
 export default router;

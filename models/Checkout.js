@@ -59,6 +59,8 @@ const CheckoutSchema = new mongoose.Schema({
   orderDate: { type: Date, default: Date.now },
   status: { type: String, default: "Pending" },
   userId: { type: String, },
+  paymentStatus: { type: String, default: "Pending" },
+  orderId: { type: String, },
 });
 
 
