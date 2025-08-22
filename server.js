@@ -86,6 +86,32 @@ app.use("/api", allRoutes);
 //   }
 // });
 
+app.post("/api/supplier/search", async (req, res) => {
+  const { searchTerm } = req.body;
+
+  const AUTH_TOKEN = "NDVhOWFkYWVkZWJmYTU0Njo3OWQ4MzJlODdmMjM4ZTJhMDZlNDY3MmVlZDIwYzczYQ";
+  const headers = {
+    "x-auth-token": AUTH_TOKEN,
+    "Content-Type": "application/json",
+  };
+
+  try {
+    const response = await axios.post(`https://api.promodata.com.au/suppliers/search?page=${req.query.page}&items_per_page=${req.query.limit}`,
+      {
+        search_term: searchTerm
+      },
+      {
+        headers,
+      }
+    );
+
+
+    res.status(200).json(response.data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.get("/api/supplier-products", async (req, res) => {
 
   const AUTH_TOKEN = "NDVhOWFkYWVkZWJmYTU0Njo3OWQ4MzJlODdmMjM4ZTJhMDZlNDY3MmVlZDIwYzczYQ";
@@ -95,7 +121,7 @@ app.get("/api/supplier-products", async (req, res) => {
   };
 
   try {
-    const response = await axios.get(`https://api.promodata.com.au/suppliers`, {
+    const response = await axios.get(`https://api.promodata.com.au/suppliers?page=${req.query.page}&items_per_page=${req.query.limit}`, {
       headers,
     });
 
@@ -583,10 +609,13 @@ app.get("/api/client-products", async (req, res) => {
     // Fetch category filters
     const filterCategories = await supCategory.find();
 
+    // Filter out discontinued products early and process all filtering logic together
+    const activeProducts = (prodResp.data.data || []).filter(p => !p?.meta?.discontinued);
+
     // Add category-based filtering to ignored IDs
     if (doFilter && filterCategories.length > 0) {
       for (const category of filterCategories) {
-        for (const product of prodResp.data.data) {
+        for (const product of activeProducts) {
           if (product.supplier.supplier_id == category.supplierId &&
             product.product.categorisation.product_type.type_group_id === category.categoryId) {
             ignoredIds.add(product.meta.id);
@@ -597,7 +626,8 @@ app.get("/api/client-products", async (req, res) => {
 
     // Process products and add margins to ALL price fields
     const processedProducts = await Promise.all(
-      prodResp.data.data.map(async (product) => {
+      activeProducts.map(async (product) => {
+        
         const supplierId = product.supplier?.supplier_id;
         const categoryId = product.product?.categorisation?.product_type?.type_group_id;
 
@@ -963,7 +993,7 @@ app.get("/api/client-products/search", async (req, res) => {
         ...prodResp.data,
         data: productsWithCustomNames,
         ignoredProductIds: Array.from(ignoredIds),
-        count:prodResp.data.item_count,
+        count: prodResp.data.item_count,
       });
     }
 
@@ -2278,7 +2308,7 @@ app.get("/api/v1-categories", async (req, res) => {
 
 
 app.post('/create-checkout-session', async (req, res) => {
-  const { products, gst, coupon,shipping } = req.body // Get GST and coupon from frontend
+  const { products, gst, coupon, shipping } = req.body // Get GST and coupon from frontend
 
   // Calculate the total before GST
   const subtotal = products.reduce((sum, product) => sum + (product.price * product.quantity), 0);

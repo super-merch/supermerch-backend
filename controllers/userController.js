@@ -35,12 +35,83 @@ const getUser = async (req, res) => {
 };
 
 const getAllUsers = async (req, res) => {
+  const { 
+    page = 1, 
+    limit = 15, 
+    search = '', 
+    sortBy = 'createdAt', 
+    sortOrder = 'desc' 
+  } = req.query;
+
   try {
-    const users = await User.find({}, "-password");
-    res.status(200).json(users);
+    // Build query filters
+    let query = {};
+    
+    // Build sort object
+    const sortObj = {};
+    sortObj[sortBy] = sortOrder === 'asc' ? 1 : -1;
+
+    // Calculate pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    // Handle search (similar to orders)
+    if (search) {
+      // Fetch all users for search filtering
+      const allUsers = await User.find({}, "-password")
+        .populate('defaultAddress')
+        .sort(sortObj);
+      
+      const filteredUsers = allUsers.filter(user => {
+        const userName = (user.name || '').toLowerCase();
+        const userEmail = (user.email || '').toLowerCase();
+        const userPhone = (user?.defaultAddress?.phone || '').toLowerCase();
+        const searchLower = search.toLowerCase();
+        
+        return userName.includes(searchLower) || 
+               userEmail.includes(searchLower) || 
+               userPhone.includes(searchLower);
+      });
+
+      const paginatedUsers = filteredUsers.slice(skip, skip + parseInt(limit));
+      const totalUsers = filteredUsers.length;
+
+      return res.status(200).json({ 
+        success: true, 
+        data: paginatedUsers,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(totalUsers / parseInt(limit)),
+          totalUsers,
+          hasNextPage: parseInt(page) < Math.ceil(totalUsers / parseInt(limit)),
+          hasPrevPage: parseInt(page) > 1
+        }
+      });
+    }
+
+    // Execute query with pagination (no search)
+    const users = await User.find(query, "-password")
+      .populate('defaultAddress')
+      .sort(sortObj)
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const totalUsers = await User.countDocuments(query);
+
+    res.status(200).json({ 
+      success: true, 
+      data: users,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(totalUsers / parseInt(limit)),
+        totalUsers,
+        hasNextPage: parseInt(page) < Math.ceil(totalUsers / parseInt(limit)),
+        hasPrevPage: parseInt(page) > 1
+      }
+    });
+
   } catch (error) {
     console.error("Error fetching users:", error);
-    res.status(500).json({ error: "Error fetching users" });
+    res.status(500).json({ success: false, error: "Error fetching users" });
   }
 };
 
