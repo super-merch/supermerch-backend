@@ -23,6 +23,28 @@ const quote = new mongoose.Schema({
     type: String,
     default: 'None',
   },
+  product:{
+    type: String,
+    required: true
+  },
+  productId:{
+    type: String,
+    required: true
+  },
+  description:{
+    type: String,
+    required: true
+  },
+  price: {
+    type: Number,
+    required: true,
+  },
+  quantity: {
+    type: Number,
+    required: true,
+  },
+}, {
+  timestamps: true  // Add this to automatically create createdAt and updatedAt fields
 });
 
 export default mongoose.model("Quote" ,quote)

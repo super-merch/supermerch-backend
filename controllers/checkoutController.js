@@ -323,11 +323,13 @@ export const updateStatus = async (req, res) => {
 // for Quote api
 
 export const quoteSaver = async (req, res) => {
-  const { name, delivery, email, phone, comment } = req.body;
+  const { name, delivery, email, phone, comment,product,productId,price,quantity,description} = req.body;
   console.log(req.body, req.file, 'req file');
 
   try {
-    if (!name || !email || !delivery || !phone || !comment) {
+    if (!name || !email || !delivery || !phone || !comment || !product || !price ||
+      !quantity || !description || !productId
+    ) {
       return res
         .status(400)
         .json({ success: false, message: 'missing some details' });
@@ -353,6 +355,11 @@ export const quoteSaver = async (req, res) => {
       delivery,
       file: fileURL,
       comment,
+      product,
+      price,
+      quantity,
+      description,
+      productId
     });
 
     await QuoteSave.save();
@@ -368,16 +375,80 @@ export const quoteSaver = async (req, res) => {
 
 
 export const getAllQuotes = async (req, res) => {
+  const { 
+    page = 1, 
+    limit = 10, 
+    search = '', 
+    sortBy = 'createdAt', 
+    sortOrder = 'desc' 
+  } = req.query;
+
   try {
-    const quotes = await Quote.find({});
-    res.status(200).json({ success: true, quotes });
+    // Build sort object
+    const sortObj = {};
+    sortObj[sortBy] = sortOrder === 'asc' ? 1 : -1;
+
+    // Calculate pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    // Handle search
+    if (search) {
+      // Fetch all quotes for search filtering
+      const allQuotes = await Quote.find({})
+        .sort(sortObj);
+      
+      const filteredQuotes = allQuotes.filter(quote => {
+        const quoteName = (quote.name || '').toLowerCase();
+        const quoteEmail = (quote.email || '').toLowerCase();
+        const quotePhone = (quote.phone || '').toLowerCase();
+        const searchLower = search.toLowerCase();
+        
+        return quoteName.includes(searchLower) || 
+               quoteEmail.includes(searchLower) || 
+               quotePhone.includes(searchLower);
+      });
+
+      const paginatedQuotes = filteredQuotes.slice(skip, skip + parseInt(limit));
+      const totalQuotes = filteredQuotes.length;
+
+      return res.status(200).json({ 
+        success: true, 
+        quotes: paginatedQuotes,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(totalQuotes / parseInt(limit)),
+          totalQuotes,
+          hasNextPage: parseInt(page) < Math.ceil(totalQuotes / parseInt(limit)),
+          hasPrevPage: parseInt(page) > 1
+        }
+      });
+    }
+
+    // Execute query with pagination (no search)
+    const quotes = await Quote.find({})
+      .sort(sortObj)
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const totalQuotes = await Quote.countDocuments({});
+
+    res.status(200).json({ 
+      success: true, 
+      quotes,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(totalQuotes / parseInt(limit)),
+        totalQuotes,
+        hasNextPage: parseInt(page) < Math.ceil(totalQuotes / parseInt(limit)),
+        hasPrevPage: parseInt(page) > 1
+      }
+    });
+
   } catch (error) {
-    console.error('Error fetching order data:', error);
-    res
-      .status(500)
-      .json({ success: false, error: 'Error fetching order data' });
+    console.error('Error fetching quotes:', error);
+    res.status(500).json({ success: false, error: 'Error fetching quotes' });
   }
-}
+};
 //delete order by id
 
 // Backend - Improved delete logic
