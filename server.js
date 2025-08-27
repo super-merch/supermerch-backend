@@ -874,7 +874,7 @@ app.get("/api/client-product/category/search", async (req, res) => {
 
   try {
     // Fetch products with proper pagination
-    const prodResp = await axios.post(`https://api.promodata.com.au/products/search?page=${page}&items_per_page=${limit}&product_type_ids=${req.query?.categoryId}&supplier_id=${req.query?.supplierId}`,
+    const prodResp = await axios.post(`https://api.promodata.com.au/products/search?page=${page}&items_per_page=${limit}&product_type_ids=${req.query?.categoryId}&supplier_id=${req.query?.supplierId||""}`,
       {
         search_term: searchTerm
       },
@@ -2278,7 +2278,7 @@ app.get("/api/params-products", async (req, res) => {
 
     // Build base URL (includes supplier param if present)
     const baseUrl = supplier
-      ? `https://api.promodata.com.au/products?product_type_ids=${category}&supplier_id=${supplier}`
+      ? `https://api.promodata.com.au/products?product_type_ids=${category}&supplier_id=${supplier||""}`
       : `https://api.promodata.com.au/products?product_type_ids=${category}`;
 
     // Fetch initial promodata meta + ignored list
