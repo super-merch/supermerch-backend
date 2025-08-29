@@ -17,5 +17,5 @@ const prioritizeSchema = new mongoose.Schema({
   timestamps: true
 });
 
-const Prioritize = mongoose.model('Prioritize', prioritizeSchema);
+const Prioritize = mongoose.model('Prioritized Model', prioritizeSchema);
 export default Prioritize;

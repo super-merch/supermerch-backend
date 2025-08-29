@@ -84,24 +84,71 @@ const deleteBlog = async (req, res) => {
 };
 
 
-export { saveBlog, getBlogs, deleteBlog };
+// Add these two new functions to your controller file
 
+const getBlogById = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const blog = await Blog.findById(id);
+        
+        if (!blog) {
+            return res.status(404).json({ success: false, message: "Blog not found" });
+        }
+        
+        res.status(200).json({ success: true, blog });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
 
-// const saveBlog = asyncHandler(async (req, res) => {
-//     const { content } = req.body;
+const updateBlog = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { content, title } = req.body;
+        
+        if (!content || !title) {
+            return res.status(400).json({ success: false, message: "Missing fields" });
+        }
 
-//     if (!content) {
-//         throw new ApiError(400, 'Missing Content');
-//     }
+        // Find existing blog
+        const existingBlog = await Blog.findById(id);
+        if (!existingBlog) {
+            return res.status(404).json({ success: false, message: "Blog not found" });
+        }
 
-//     const blog = await Blog.create({ content });
+        let imageURL = existingBlog.image; // Keep existing image by default
 
-//     if (!blog) {
-//         throw new ApiError(500, 'Error Saving blog');
-//     }
+        // If new image is uploaded
+        if (req.file) {
+            // Delete old image from cloudinary
+            try {
+                const oldImageUrl = existingBlog.image;
+                const publicIdMatch = oldImageUrl.match(/\/v\d+\/(.+?)\./);
+                if (publicIdMatch && publicIdMatch[1]) {
+                    const publicId = publicIdMatch[1];
+                    await cloudinary.uploader.destroy(publicId);
+                }
+            } catch (error) {
+                console.log("Error deleting old image:", error.message);
+            }
 
-//     return res.status(200).send(
-//         new ApiResponse(200, blog, 'Blog saved successfully')
-//     )
+            // Upload new image
+            const imageUpload = await cloudinary.uploader.upload(req.file.path, { resource_type: "image" });
+            imageURL = imageUpload.secure_url;
+        }
 
-// });
+        const updatedBlog = await Blog.findByIdAndUpdate(
+            id,
+            { content, title, image: imageURL },
+            { new: true }
+        );
+
+        res.status(200).json({ success: true, blog: updatedBlog });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// Update your export
+export { saveBlog, getBlogs, deleteBlog, updateBlog, getBlogById };

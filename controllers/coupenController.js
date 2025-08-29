@@ -22,12 +22,17 @@ const addCoupen = async (req, res) => {
     }
     
     try {
-        // Delete all existing coupons (only one at a time)
-        await coupenModel.deleteMany({});
+        const couponCode = coupen.toUpperCase().trim();
+        
+        // Check if coupon already exists
+        const existingCoupon = await coupenModel.findOne({ coupen: couponCode });
+        if (existingCoupon) {
+            return res.status(400).json({ message: "Coupon code already exists" });
+        }
         
         // Create new coupon
         const newCoupon = await coupenModel.create({ 
-            coupen: coupen.toUpperCase().trim(), 
+            coupen: couponCode, 
             discount: Number(discount) 
         });
         
@@ -41,9 +46,21 @@ const addCoupen = async (req, res) => {
 }
 
 const deleteCoupen = async (req, res) => {
+    const { id } = req.params;
+    
     try {
-        await coupenModel.deleteMany({});
-        res.status(200).json({ message: "All coupons deleted successfully" });
+        if (!id) {
+            // If no ID provided, delete all coupons (for backward compatibility)
+            await coupenModel.deleteMany({});
+            res.status(200).json({ message: "All coupons deleted successfully" });
+        } else {
+            // Delete specific coupon by ID
+            const deletedCoupon = await coupenModel.findByIdAndDelete(id);
+            if (!deletedCoupon) {
+                return res.status(404).json({ message: "Coupon not found" });
+            }
+            res.status(200).json({ message: "Coupon deleted successfully" });
+        }
     } catch (error) {
         res.status(500).json({ message: error.message });
     }

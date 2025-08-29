@@ -181,6 +181,60 @@ router.get('/prioritize/:categoryId', async (req, res) => {
     });
   }
 });
+router.post('/prioritize/reorder', async (req, res) => {
+  try {
+    const { categoryId, productId, newPosition } = req.body;
+
+    if (!categoryId || !productId || newPosition === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: 'Category ID, Product ID, and new position are required'
+      });
+    }
+
+    const prioritizeEntry = await Prioritize.findOne({ categoryId });
+
+    if (!prioritizeEntry) {
+      return res.status(404).json({
+        success: false,
+        message: 'Category not found in prioritize list'
+      });
+    }
+
+    // Convert productId to string for comparison (since we store as String in schema)
+    const productIdStr = String(productId);
+    const currentIndex = prioritizeEntry.productIds.findIndex(id => id === productIdStr);
+
+    if (currentIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        message: 'Product not found in prioritized list'
+      });
+    }
+
+    // Remove from current position
+    const [movedProduct] = prioritizeEntry.productIds.splice(currentIndex, 1);
+    
+    // Insert at new position (0-based index)
+    const targetIndex = Math.max(0, Math.min(newPosition - 1, prioritizeEntry.productIds.length));
+    prioritizeEntry.productIds.splice(targetIndex, 0, movedProduct);
+
+    await prioritizeEntry.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Product order updated successfully',
+      data: prioritizeEntry
+    });
+
+  } catch (error) {
+    console.error('Error reordering product:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
 
 // 4. (Optional) GET ALL PRIORITIZED API kept if you still need it
 router.get('/prioritized', async (req, res) => {
