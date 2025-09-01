@@ -2225,167 +2225,204 @@ app.get("/api/params-products", async (req, res) => {
   };
 
   try {
-    // Get all prioritized IDs for the category
-    const categoryFound = await Prioritize.findOne({ categoryId: category });
-    const prioritizedIds = categoryFound && Array.isArray(categoryFound.productIds)
-      ? categoryFound.productIds.map(String)
-      : [];
-
-    // If supplier is provided: identify which prioritized IDs belong to that supplier
-    let prioritizedIdsForThisSupplier = prioritizedIds; // default: all
-    const prioritizedProductCache = {}; // id -> product obj (for those we fetch)
-
-    if (supplier) {
-      // Fetch single-product endpoint for each prioritized id to see its supplier
-      // (we fetch them all so we can compute totalPrioritized for pagination correctly)
-      const prioritizedFetches = await Promise.all(
-        prioritizedIds.map(id =>
-          axios.get(`https://api.promodata.com.au/products/${id}`, { headers })
-            .then(r => ({ id: String(id), product: r.data.data }))
-            .catch(err => {
-              console.warn(`Failed fetch prioritized id ${id}:`, err?.message || err);
-              return null;
-            })
-        )
-      );
-
-      // Filter only those prioritized products that actually belong to requested supplier
-      prioritizedIdsForThisSupplier = [];
-      for (const item of prioritizedFetches) {
-        if (!item) continue;
-        const pid = String(item.id);
-        const prod = item.product;
-        const prodSupplierId = prod?.supplier?.supplier_id;
-        // store in cache for possible reuse
-        prioritizedProductCache[pid] = prod;
-        if (String(prodSupplierId) === String(supplier)) {
-          prioritizedIdsForThisSupplier.push(pid);
-        }
-      }
-    }
-
-    // Pagination indices (virtual sequence = prioritized-for-this-request then general)
+    // Calculate pagination indices upfront
     const startIndex = (page - 1) * itemCount;
     const endIndex = startIndex + itemCount;
-    const totalPrioritized = prioritizedIdsForThisSupplier.length;
 
-    // which prioritized ids belong to this page?
-    const prioritizedSliceIds = prioritizedIdsForThisSupplier.slice(startIndex, endIndex);
-
-    // indices in the "general (non-priority) list" we need
-    const generalStart = Math.max(0, startIndex - totalPrioritized);
-    const generalEnd = Math.max(0, endIndex - totalPrioritized); // exclusive
-
-    // Build base URL (includes supplier param if present)
-    const baseUrl = supplier
-      ? `https://api.promodata.com.au/products?product_type_ids=${category}&supplier_id=${supplier||""}`
-      : `https://api.promodata.com.au/products?product_type_ids=${category}`;
-
-    // Fetch initial promodata meta + ignored list
-    const initialPromodataUrl = `${baseUrl}&items_per_page=${itemCount}&page=1`;
-    const [firstResp, ignResp] = await Promise.all([
-      axios.get(initialPromodataUrl, { headers }),
-      axios.get(`https://api.promodata.com.au/products/ignored`, { headers })
+    // Parallel fetch all required data immediately
+    const [
+      categoryFound,
+      supplierMargins,
+      categoryMargins,
+      globalDiscount,
+      filterCategories,
+      customNames,
+      ignResp,
+      firstResp
+    ] = await Promise.all([
+      Prioritize.findOne({ categoryId: category }),
+      supplierMarginModel.find(),
+      categoryMarginModal.find(),
+      GlobalDiscount.findOne({ isActive: true }),
+      doFilter ? supCategory.find() : Promise.resolve([]),
+      getCustomNames(),
+      axios.get(`https://api.promodata.com.au/products/ignored`, { headers }),
+      axios.get(`https://api.promodata.com.au/products?product_type_ids=${category}${supplier ? `&supplier_id=${supplier}` : ""}&items_per_page=${itemCount}&page=1`, { headers })
     ]);
 
-    const promodataMeta = firstResp.data; // contains total_pages, item_count etc
+    // Pre-process all lookup maps
+    const prioritizedIds = categoryFound?.productIds?.map(String) || [];
+    const prioritizedIdsSet = new Set(prioritizedIds);
+    
+    const marginsMap = Object.fromEntries(
+      supplierMargins.map(item => [String(item.supplierId), item.margin])
+    );
+    
+    const categoryMarginsMap = Object.fromEntries(
+      categoryMargins.map(item => [`${item.supplierId}_${item.categoryId}`, item.margin])
+    );
+    
+    const globalDiscountPercentage = globalDiscount?.discount || 0;
+    const promodataMeta = firstResp.data;
     const promodataTotalPages = promodataMeta.total_pages || 1;
 
-    // Build ignoredIds set but DO NOT allow prioritized IDs (global) to remain in ignored set
-    // We'll remove any prioritized IDs from ignored so prioritized items are not excluded
+    // Build ignored set (excluding prioritized IDs)
     const ignoredIdsFromApi = (ignResp.data.data || []).map(i => String(i.meta?.id)).filter(Boolean);
-    const ignoredIds = new Set(ignoredIdsFromApi.filter(id => !prioritizedIds.includes(id)));
+    const ignoredIds = new Set(ignoredIdsFromApi.filter(id => !prioritizedIdsSet.has(id)));
 
-    // 4) Fetch the prioritized products needed for this page (single-product endpoint)
-    // Use the cached results (if we already fetched them when supplier present)
-    const prioritizedProducts = await Promise.all(
-      prioritizedSliceIds.map(async (id) => {
-        try {
-          if (prioritizedProductCache[id]) return prioritizedProductCache[id];
-          const resp = await axios.get(`https://api.promodata.com.au/products/${id}`, { headers });
-          return resp.data.data;
-        } catch (err) {
-          console.warn(`Prioritized product fetch failed for ${id}:`, err?.message || err);
-          return null;
-        }
-      })
-    );
-    const prioritizedProductsClean = prioritizedProducts.filter(Boolean);
+    // Handle supplier-specific prioritized products
+    let prioritizedIdsForThisSupplier = prioritizedIds;
+    let prioritizedProductCache = {};
 
-    // 5) Collect non-priority products from promodata (iteratively) until we have enough to slice [generalStart, generalEnd)
-    const filteredNonPrioritized = [];
-    for (let p = 1; p <= promodataTotalPages && filteredNonPrioritized.length < generalEnd; p++) {
-      const pageUrl = `${baseUrl}&items_per_page=${itemCount}&page=${p}`;
-      const resp = await axios.get(pageUrl, { headers });
-      const pageProducts = resp.data.data || [];
+    if (supplier) {
+      // Batch fetch prioritized products with concurrency limit
+      const batchSize = 10;
+      const prioritizedBatches = [];
+      for (let i = 0; i < prioritizedIds.length; i += batchSize) {
+        prioritizedBatches.push(prioritizedIds.slice(i, i + batchSize));
+      }
 
-      // Category-based filtering additions (mirror previous logic)
-      const filterCategories = await supCategory.find();
-      if (doFilter && filterCategories.length > 0) {
-        for (const categoryFilter of filterCategories) {
-          for (const product of pageProducts) {
-            const supplierId2 = product?.supplier?.supplier_id;
-            const productTypeGroupId = product?.product?.categorisation?.product_type?.type_group_id;
-            if (
-              supplierId2 == categoryFilter.supplierId &&
-              productTypeGroupId === categoryFilter.categoryId
-            ) {
-              const pid = String(product.meta?.id);
-              // ensure prioritized override: don't add prioritized id to ignored
-              if (!prioritizedIds.includes(pid)) {
-                ignoredIds.add(pid);
-              }
-            }
+      const allPrioritizedResults = [];
+      for (const batch of prioritizedBatches) {
+        const batchResults = await Promise.allSettled(
+          batch.map(id =>
+            axios.get(`https://api.promodata.com.au/products/${id}`, { headers })
+              .then(r => ({ id: String(id), product: r.data.data }))
+          )
+        );
+        allPrioritizedResults.push(...batchResults);
+      }
+
+      // Filter by supplier and build cache
+      prioritizedIdsForThisSupplier = [];
+      for (const result of allPrioritizedResults) {
+        if (result.status === 'fulfilled' && result.value) {
+          const { id, product } = result.value;
+          prioritizedProductCache[id] = product;
+          if (String(product?.supplier?.supplier_id) === String(supplier)) {
+            prioritizedIdsForThisSupplier.push(id);
           }
         }
       }
+    }
 
-      for (const prod of pageProducts) {
-        const pid = String(prod.meta?.id);
-        // Skip any globally prioritized ids to avoid duplicates (we already promoted prioritized ones above)
-        if (prioritizedIds.includes(pid)) continue;
-        if (ignoredIds.has(pid)) continue;
-        filteredNonPrioritized.push(prod);
-        if (filteredNonPrioritized.length >= generalEnd) break;
+    const totalPrioritized = prioritizedIdsForThisSupplier.length;
+    
+    // Get prioritized products for this page
+    const prioritizedSliceIds = prioritizedIdsForThisSupplier.slice(startIndex, endIndex);
+    let prioritizedProductsClean = [];
+
+    if (prioritizedSliceIds.length > 0) {
+      if (supplier && Object.keys(prioritizedProductCache).length > 0) {
+        // Use cached results
+        prioritizedProductsClean = prioritizedSliceIds
+          .map(id => prioritizedProductCache[id])
+          .filter(Boolean);
+      } else {
+        // Batch fetch with concurrency control
+        const batchSize = 5;
+        const batches = [];
+        for (let i = 0; i < prioritizedSliceIds.length; i += batchSize) {
+          batches.push(prioritizedSliceIds.slice(i, i + batchSize));
+        }
+
+        const allResults = [];
+        for (const batch of batches) {
+          const batchResults = await Promise.allSettled(
+            batch.map(id =>
+              axios.get(`https://api.promodata.com.au/products/${id}`, { headers })
+                .then(resp => resp.data.data)
+            )
+          );
+          allResults.push(...batchResults);
+        }
+        
+        prioritizedProductsClean = allResults
+          .filter(result => result.status === 'fulfilled' && result.value)
+          .map(result => result.value);
       }
     }
 
-    // 6) Slice needed range from filteredNonPrioritized
-    const generalSlice = filteredNonPrioritized.slice(generalStart, generalEnd);
+    // Calculate general products needed
+    const generalStart = Math.max(0, startIndex - totalPrioritized);
+    const generalEnd = Math.max(0, endIndex - totalPrioritized);
+    let generalSlice = [];
 
-    // 7) Compose final products (prioritized for this request first, then general)
+    if (generalEnd > generalStart) {
+      // Pre-build filter lookup for category filtering
+      const filterLookup = new Set();
+      if (doFilter && filterCategories.length > 0) {
+        filterCategories.forEach(cf => {
+          filterLookup.add(`${cf.supplierId}_${cf.categoryId}`);
+        });
+      }
+
+      // Smart pagination: calculate which pages we actually need
+      const neededItems = generalEnd - generalStart;
+      const estimatedStartPage = Math.max(1, Math.floor(generalStart / itemCount) + 1);
+      const maxPagesToFetch = Math.min(5, Math.ceil(neededItems / itemCount) + 2);
+
+      // Parallel fetch multiple pages with limit
+      const pagePromises = [];
+      for (let p = estimatedStartPage; p <= Math.min(estimatedStartPage + maxPagesToFetch - 1, promodataTotalPages); p++) {
+        const pageUrl = `https://api.promodata.com.au/products?product_type_ids=${category}${supplier ? `&supplier_id=${supplier}` : ""}&items_per_page=${itemCount}&page=${p}`;
+        pagePromises.push(
+          axios.get(pageUrl, { headers })
+            .then(resp => resp.data.data || [])
+            .catch(err => {
+              console.warn(`Failed to fetch page ${p}:`, err?.message || err);
+              return [];
+            })
+        );
+      }
+
+      const allPageResults = await Promise.all(pagePromises);
+      const allProducts = allPageResults.flat();
+
+      // Single-pass filtering
+      const filteredNonPrioritized = [];
+      for (const prod of allProducts) {
+        const pid = String(prod.meta?.id);
+        
+        // Skip prioritized and ignored
+        if (prioritizedIdsSet.has(pid) || ignoredIds.has(pid)) continue;
+        
+        // Apply category filter if enabled
+        if (doFilter && filterLookup.size > 0) {
+          const supplierId2 = prod?.supplier?.supplier_id;
+          const productTypeGroupId = prod?.product?.categorisation?.product_type?.type_group_id;
+          const filterKey = `${supplierId2}_${productTypeGroupId}`;
+          
+          if (filterLookup.has(filterKey) && !prioritizedIdsSet.has(pid)) {
+            ignoredIds.add(pid);
+            continue;
+          }
+        }
+        
+        filteredNonPrioritized.push(prod);
+        if (filteredNonPrioritized.length >= generalEnd) break;
+      }
+
+      generalSlice = filteredNonPrioritized.slice(generalStart, generalEnd);
+    }
+
+    // Combine results
     const finalPageProductsRaw = [...prioritizedProductsClean, ...generalSlice];
 
-    // 8) Prepare margin/discount maps (unchanged)
-    const supplierMargins = await supplierMarginModel.find();
-    const marginsMap = {};
-    supplierMargins.forEach(item => {
-      marginsMap[String(item.supplierId)] = item.margin;
-    });
-
-    const categoryMargins = await categoryMarginModal.find();
-    const categoryMarginsMap = {};
-    categoryMargins.forEach(item => {
-      const key = `${item.supplierId}_${item.categoryId}`;
-      categoryMarginsMap[key] = item.margin;
-    });
-
-    const globalDiscount = await GlobalDiscount.findOne({ isActive: true });
-    const globalDiscountPercentage = globalDiscount ? globalDiscount.discount : 0;
-
-    // 9) Apply margin and discount processing to final page products
+    // Batch process all products with pre-built lookups
     const processedProducts = await Promise.all(
       finalPageProductsRaw.map(async (product) => {
         const supplierId2 = String(product.supplier.supplier_id);
         const categoryId2 = product.product?.categorisation?.product_type?.type_group_id;
 
+        // Fast lookup margins
         const supplierMargin = marginsMap[supplierId2] || 0;
-        const categoryKey = `${supplierId2}_${categoryId2}`;
-        const categoryMargin = categoryMarginsMap[categoryKey] || 0;
+        const categoryMargin = categoryMarginsMap[`${supplierId2}_${categoryId2}`] || 0;
         const totalMargin = supplierMargin + categoryMargin;
 
         let processedProduct = addMarginToAllPrices(product, totalMargin);
 
+        // Determine discount efficiently
         let discountPercentage = globalDiscountPercentage;
         if (!globalDiscountPercentage) {
           const productDiscountInfo = await getProductDiscount(product.meta.id);
@@ -2396,6 +2433,7 @@ app.get("/api/params-products", async (req, res) => {
           processedProduct = applyDiscountToProduct(processedProduct, discountPercentage);
         }
 
+        // Add metadata
         processedProduct.marginInfo = {
           supplierMargin,
           categoryMargin,
@@ -2411,29 +2449,26 @@ app.get("/api/params-products", async (req, res) => {
       })
     );
 
-    // 10) Apply custom names and return response (keeping promodata meta)
-    const customNames = await getCustomNames();
+    // Apply custom names
     const productsWithCustomNames = applyCustomNamesToProducts(processedProducts, customNames);
 
-    if (doFilter) {
-      return res.json({
-        ...promodataMeta,
-        data: productsWithCustomNames
-      });
-    } else {
-      return res.json({
-        ...promodataMeta,
-        data: productsWithCustomNames,
-        ignoredProductIds: Array.from(ignoredIds)
-      });
+    // Return response
+    const response = {
+      ...promodataMeta,
+      data: productsWithCustomNames
+    };
+
+    if (!doFilter) {
+      response.ignoredProductIds = Array.from(ignoredIds);
     }
+
+    return res.json(response);
 
   } catch (error) {
     console.error("Error fetching category products:", error);
     return res.status(500).json({ error: "Failed to fetch products", details: error.message });
   }
 });
-
 // *********************************************************************
 // Ignore and Unignore API *********************************************************************
 app.get("/api/ignored-products", async (req, res) => {

@@ -11,6 +11,7 @@ const ProductSchema = new mongoose.Schema({
   logoColor: { type: String, default: "None" },
   logo: { type: String, default: "None", },
   id: { type: String, required: true },
+  size:{type:String, default:"None"}
 });
 
 const AddressSchema = new mongoose.Schema({
