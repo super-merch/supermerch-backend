@@ -13,6 +13,7 @@ import {
   checkUser,
   verifyResetCode,
   resetPassword,
+  saveShippingAddress,
 
 } from "../controllers/userController.js";
 import authMiddleware from "../middleware/authMiddleware.js";
@@ -68,6 +69,7 @@ router.delete("/users/:id", deleteUser);
 
 
 router.put("/update-address", authMiddleware, saveAddress);
+router.put('/update-shipping-address',authMiddleware, saveShippingAddress);
 
 router.get('/get-web-user', authMiddleware, getWebUser)
 router.put("/updateWeb-user", authMiddleware, updateWebUser);

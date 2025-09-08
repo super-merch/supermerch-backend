@@ -33,7 +33,9 @@ resetCode: {
     default: undefined
   },
   defaultAddress: { type: Object, default: {} },
-},{
+  defaultShippingAddress: { type: Object, default: {} },
+}
+,{
   timestamps: true
 });
 

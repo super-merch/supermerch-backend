@@ -35,6 +35,23 @@ const adminMiddleware = async (req, res, next) => {
     next();
     
   } catch (error) {
+    // handle expired / invalid tokens explicitly but keep your response shape
+    if (error && error.name === "TokenExpiredError") {
+      return res.status(400).json({
+        success: false,
+        message: "Not Authorized Login Again",
+        expiredAt: error.expiredAt, // optional extra info
+      });
+    }
+
+    if (error && error.name === "JsonWebTokenError") {
+      return res.status(400).json({
+        success: false,
+        message: "Not Authorized Login Again",
+      });
+    }
+
+    // fallback to original behavior for unexpected errors
     console.log(error);
     res.status(500).json({ success: false, message: error.message });
   }

@@ -181,7 +181,7 @@ const signUpUser = async (req, res) => {
     if (password.length < 8) {
       return res
         .status(400)
-        .json({ success: false, message: "Please enter a strong password" });
+        .json({ success: false, message: "Password must be larger then 8 Characters" });
     }
 
     // Hash the password
@@ -255,6 +255,29 @@ const deleteUser = async (req, res) => {
   } catch (error) {
     console.error("Error deleting user:", error);
     res.status(500).json({ error: "Error deleting user" });
+  }
+};
+export const saveShippingAddress = async (req, res) => {
+  try {
+    const { defaultShippingAddress } = req.body;
+    const { userId } = req.body;
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { defaultShippingAddress },
+      { new: true }
+    );
+
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
+    }
+
+    res.status(200).json({ success: true, user });
+  } catch (error) {
+    console.error("Error updating shipping address:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
 
