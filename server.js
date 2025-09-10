@@ -628,7 +628,7 @@ app.get("/api/client-products", async (req, res) => {
     // Process products and add margins to ALL price fields
     const processedProducts = await Promise.all(
       activeProducts.map(async (product) => {
-        
+
         const supplierId = product.supplier?.supplier_id;
         const categoryId = product.product?.categorisation?.product_type?.type_group_id;
 
@@ -870,11 +870,11 @@ app.get("/api/client-product/category/search", async (req, res) => {
     "x-auth-token": AUTH_TOKEN,
     "Content-Type": "application/json",
   };
-  
+
 
   try {
     // Fetch products with proper pagination
-    const prodResp = await axios.post(`https://api.promodata.com.au/products/search?page=${page}&items_per_page=${limit}&product_type_ids=${req.query?.categoryId}&supplier_id=${req.query?.supplierId||""}`,
+    const prodResp = await axios.post(`https://api.promodata.com.au/products/search?page=${page}&items_per_page=${limit}&product_type_ids=${req.query?.categoryId}&supplier_id=${req.query?.supplierId || ""}`,
       {
         search_term: searchTerm
       },
@@ -1015,7 +1015,7 @@ app.get("/api/client-products/search", async (req, res) => {
     "x-auth-token": AUTH_TOKEN,
     "Content-Type": "application/json",
   };
-  
+
 
   try {
     // Fetch products with proper pagination
@@ -2253,15 +2253,15 @@ app.get("/api/params-products", async (req, res) => {
     // Pre-process all lookup maps
     const prioritizedIds = categoryFound?.productIds?.map(String) || [];
     const prioritizedIdsSet = new Set(prioritizedIds);
-    
+
     const marginsMap = Object.fromEntries(
       supplierMargins.map(item => [String(item.supplierId), item.margin])
     );
-    
+
     const categoryMarginsMap = Object.fromEntries(
       categoryMargins.map(item => [`${item.supplierId}_${item.categoryId}`, item.margin])
     );
-    
+
     const globalDiscountPercentage = globalDiscount?.discount || 0;
     const promodataMeta = firstResp.data;
     const promodataTotalPages = promodataMeta.total_pages || 1;
@@ -2307,7 +2307,7 @@ app.get("/api/params-products", async (req, res) => {
     }
 
     const totalPrioritized = prioritizedIdsForThisSupplier.length;
-    
+
     // Get prioritized products for this page
     const prioritizedSliceIds = prioritizedIdsForThisSupplier.slice(startIndex, endIndex);
     let prioritizedProductsClean = [];
@@ -2336,7 +2336,7 @@ app.get("/api/params-products", async (req, res) => {
           );
           allResults.push(...batchResults);
         }
-        
+
         prioritizedProductsClean = allResults
           .filter(result => result.status === 'fulfilled' && result.value)
           .map(result => result.value);
@@ -2379,31 +2379,38 @@ app.get("/api/params-products", async (req, res) => {
       const allPageResults = await Promise.all(pagePromises);
       const allProducts = allPageResults.flat();
 
-      // Single-pass filtering
+      // Single-pass filtering (collect filtered non-prioritized items from fetched pages)
       const filteredNonPrioritized = [];
       for (const prod of allProducts) {
         const pid = String(prod.meta?.id);
-        
+
         // Skip prioritized and ignored
         if (prioritizedIdsSet.has(pid) || ignoredIds.has(pid)) continue;
-        
+
         // Apply category filter if enabled
         if (doFilter && filterLookup.size > 0) {
           const supplierId2 = prod?.supplier?.supplier_id;
           const productTypeGroupId = prod?.product?.categorisation?.product_type?.type_group_id;
           const filterKey = `${supplierId2}_${productTypeGroupId}`;
-          
+
           if (filterLookup.has(filterKey) && !prioritizedIdsSet.has(pid)) {
             ignoredIds.add(pid);
             continue;
           }
         }
-        
+
         filteredNonPrioritized.push(prod);
-        if (filteredNonPrioritized.length >= generalEnd) break;
+        // don't break here — we need the whole window from the fetched pages
       }
 
-      generalSlice = filteredNonPrioritized.slice(generalStart, generalEnd);
+      // Convert global indices (generalStart..generalEnd) to indices relative to the first fetched page
+      const firstFetchedPageOffset = (estimatedStartPage - 1) * itemCount; // global index of first item in allProducts
+      const relativeStart = Math.max(0, generalStart - firstFetchedPageOffset);
+      const relativeEnd = Math.max(0, generalEnd - firstFetchedPageOffset);
+
+      // Slice using relative indices
+      generalSlice = filteredNonPrioritized.slice(relativeStart, relativeEnd);
+
     }
 
     // Combine results
