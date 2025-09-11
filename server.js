@@ -571,7 +571,7 @@ app.get("/api/client-products", async (req, res) => {
 
   try {
     // Fetch products
-    const prodResp = await axios.get(`https://api.promodata.com.au/products?page=${page}&items_per_page=${limit}`, {
+    const prodResp = await axios.get(`https://api.promodata.com.au/products?page=${page}&items_per_page=${limit}&include_discontinued=false`, {
       headers,
     });
 
@@ -874,7 +874,7 @@ app.get("/api/client-product/category/search", async (req, res) => {
 
   try {
     // Fetch products with proper pagination
-    const prodResp = await axios.post(`https://api.promodata.com.au/products/search?page=${page}&items_per_page=${limit}&product_type_ids=${req.query?.categoryId}&supplier_id=${req.query?.supplierId || ""}`,
+    const prodResp = await axios.post(`https://api.promodata.com.au/products/search?page=${page}&items_per_page=${limit}&product_type_ids=${req.query?.categoryId}&supplier_id=${req.query?.supplierId || ""}&include_discontinued=false`,
       {
         search_term: searchTerm
       },
@@ -1019,7 +1019,7 @@ app.get("/api/client-products/search", async (req, res) => {
 
   try {
     // Fetch products with proper pagination
-    const prodResp = await axios.post(`https://api.promodata.com.au/products/search?page=${page}&items_per_page=${limit}`,
+    const prodResp = await axios.post(`https://api.promodata.com.au/products/search?page=${page}&items_per_page=${limit}&include_discontinued=false`,
       {
         search_term: searchTerm
       },
@@ -2247,7 +2247,7 @@ app.get("/api/params-products", async (req, res) => {
       doFilter ? supCategory.find() : Promise.resolve([]),
       getCustomNames(),
       axios.get(`https://api.promodata.com.au/products/ignored`, { headers }),
-      axios.get(`https://api.promodata.com.au/products?product_type_ids=${category}${supplier ? `&supplier_id=${supplier}` : ""}&items_per_page=${itemCount}&page=1`, { headers })
+      axios.get(`https://api.promodata.com.au/products?product_type_ids=${category}${supplier ? `&supplier_id=${supplier}` : ""}&items_per_page=${itemCount}&page=1&include_discontinued=false`, { headers })
     ]);
 
     // Pre-process all lookup maps
@@ -2365,7 +2365,7 @@ app.get("/api/params-products", async (req, res) => {
       // Parallel fetch multiple pages with limit
       const pagePromises = [];
       for (let p = estimatedStartPage; p <= Math.min(estimatedStartPage + maxPagesToFetch - 1, promodataTotalPages); p++) {
-        const pageUrl = `https://api.promodata.com.au/products?product_type_ids=${category}${supplier ? `&supplier_id=${supplier}` : ""}&items_per_page=${itemCount}&page=${p}`;
+        const pageUrl = `https://api.promodata.com.au/products?product_type_ids=${category}${supplier ? `&supplier_id=${supplier}` : ""}&items_per_page=${itemCount}&page=${p}&include_discontinued=false`;
         pagePromises.push(
           axios.get(pageUrl, { headers })
             .then(resp => resp.data.data || [])
