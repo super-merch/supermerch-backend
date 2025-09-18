@@ -563,6 +563,7 @@ app.get("/api/client-products", async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 100;
   const doFilter = req.query.filter !== 'false';
+  const supplier = req.query.supplier;
   const AUTH_TOKEN = "NDVhOWFkYWVkZWJmYTU0Njo3OWQ4MzJlODdmMjM4ZTJhMDZlNDY3MmVlZDIwYzczYQ";
   const headers = {
     "x-auth-token": AUTH_TOKEN,
@@ -571,7 +572,7 @@ app.get("/api/client-products", async (req, res) => {
 
   try {
     // Fetch products
-    const prodResp = await axios.get(`https://api.promodata.com.au/products?page=${page}&items_per_page=${limit}&include_discontinued=false`, {
+    const prodResp = await axios.get(`https://api.promodata.com.au/products?page=${page}&items_per_page=${limit}&include_discontinued=false${supplier ? `&supplier_id=${supplier}` : ''} `, {
       headers,
     });
 
