@@ -162,7 +162,7 @@ export const getAustraliaProducts = async (req, res) => {
         const categoryMargin = categoryMarginsMap[categoryKey] || 0;
         const totalMargin = supplierMargin + categoryMargin;
 
-        let processedProduct = addMarginToAllPrices(product, totalMargin);
+        let processedProduct = await addMarginToAllPrices(product, totalMargin);
 
         let discountPercentage = globalDiscountPercentage;
         if (!globalDiscountPercentage) {

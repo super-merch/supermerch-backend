@@ -162,7 +162,14 @@ export const get24HourProducts = async (req, res) => {
         const categoryMargin = categoryMarginsMap[categoryKey] || 0;
         const totalMargin = supplierMargin + categoryMargin;
 
-        let processedProduct = addMarginToAllPrices(product, totalMargin);
+        // UPDATED: Add await since addMarginToAllPrices is now async
+        let processedProduct = await addMarginToAllPrices(product, totalMargin);
+
+        // UPDATED: Update marginInfo with actual supplier and category values if not using global margin
+        if (!processedProduct.marginInfo.isGlobalMarginActive) {
+          processedProduct.marginInfo.supplierMargin = supplierMargin;
+          processedProduct.marginInfo.categoryMargin = categoryMargin;
+        }
 
         let discountPercentage = globalDiscountPercentage;
         if (!globalDiscountPercentage) {
@@ -174,12 +181,7 @@ export const get24HourProducts = async (req, res) => {
           processedProduct = applyDiscountToProduct(processedProduct, discountPercentage);
         }
 
-        processedProduct.marginInfo = {
-          supplierMargin,
-          categoryMargin,
-          totalMargin
-        };
-
+        // Add discount info (marginInfo is already handled by the helper function)
         processedProduct.discountInfo = {
           discount: discountPercentage,
           isGlobal: globalDiscountPercentage > 0

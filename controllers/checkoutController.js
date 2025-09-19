@@ -12,10 +12,10 @@ export const createCheckout = async (req, res) => {
     return res.status(400).json({ errors: errors.array() });
   }
 
-  let {orderId, userId, user, billingAddress, 
-    shippingAddress, products, shipping, discount, 
+  let { orderId, userId, user, billingAddress,
+    shippingAddress, products, shipping, discount,
     // tax, 
-    total, gst,paymentStatus } =
+    total, gst, paymentStatus } =
     req.body;
   console.log(userId, 'userId');
   console.log(req.body, 'body');
@@ -67,16 +67,16 @@ export const createCheckout = async (req, res) => {
   }
 };
 
-export const getAllProducts = async (req, res) => {
+export const  getAllProducts = async (req, res) => {
   const { id } = req.params;
-  const { 
-    page = 1, 
-    limit = 10, 
-    search = '', 
-    status = 'All', 
-    date = '', 
-    sortBy = 'orderDate', 
-    sortOrder = 'desc' 
+  const {
+    page = 1,
+    limit = 10,
+    search = '',
+    status = 'All',
+    date = '',
+    sortBy = 'orderDate',
+    sortOrder = 'desc'
   } = req.query;
 
   try {
@@ -89,12 +89,12 @@ export const getAllProducts = async (req, res) => {
     } else {
       // Build query filters
       let query = {};
-      
+
       // Status filter
       if (status !== 'All') {
         query.status = status;
       }
-      
+
       // Date filter
       if (date) {
         const filterDate = new Date(date);
@@ -125,23 +125,29 @@ export const getAllProducts = async (req, res) => {
         const allOrders = await Checkout.find(query)
           .populate('user', 'firstName lastName')
           .sort(sortObj);
-        
+
         const filteredOrders = allOrders.filter(order => {
           const userName = `${order.user?.firstName || ''} ${order.user?.lastName || ''}`.toLowerCase();
           const orderId = (order.orderId || order._id).toString().toLowerCase();
           const orderDate = new Date(order.orderDate).toLocaleDateString().toLowerCase();
           const searchLower = search.toLowerCase();
-          
-          return userName.includes(searchLower) || 
-                 orderId.includes(searchLower) || 
-                 orderDate.includes(searchLower);
+
+          return userName.includes(searchLower) ||
+            orderId.includes(searchLower) ||
+            orderDate.includes(searchLower);
         });
 
         const paginatedOrders = filteredOrders.slice(skip, skip + parseInt(limit));
         const totalOrders = filteredOrders.length;
+        const pendingOrders = await Checkout.countDocuments({
+          ...query,
+          status: { $nin: ['Delivered', 'Cancelled'] }
+        });
+        const cancelledOrders = await Checkout.countDocuments({ ...query, status: 'Cancelled' });
+        const deliveredOrders = await Checkout.countDocuments({ ...query, status: 'Delivered' });
 
-        return res.status(200).json({ 
-          success: true, 
+        return res.status(200).json({
+          success: true,
           data: paginatedOrders,
           pagination: {
             currentPage: parseInt(page),
@@ -149,15 +155,23 @@ export const getAllProducts = async (req, res) => {
             totalOrders,
             hasNextPage: parseInt(page) < Math.ceil(totalOrders / parseInt(limit)),
             hasPrevPage: parseInt(page) > 1
-          }
+          },
+          pendingOrders,
+          deliveredOrders,
+          cancelledOrders
         });
       }
 
       const orders = await ordersQuery;
       const totalOrders = await Checkout.countDocuments(query);
-
-      res.status(200).json({ 
-        success: true, 
+      const pendingOrders = await Checkout.countDocuments({
+        ...query,
+        status: { $nin: ['Delivered', 'Cancelled'] }
+      });
+      const cancelledOrders = await Checkout.countDocuments({ ...query, status: 'Cancelled' });
+      const deliveredOrders = await Checkout.countDocuments({ ...query, status: 'Delivered' });
+      res.status(200).json({
+        success: true,
         data: orders,
         pagination: {
           currentPage: parseInt(page),
@@ -165,7 +179,10 @@ export const getAllProducts = async (req, res) => {
           totalOrders,
           hasNextPage: parseInt(page) < Math.ceil(totalOrders / parseInt(limit)),
           hasPrevPage: parseInt(page) > 1
-        }
+        },
+        pendingOrders,
+        cancelledOrders,
+        deliveredOrders
       });
     }
   } catch (error) {
@@ -175,7 +192,7 @@ export const getAllProducts = async (req, res) => {
 };
 //orderstatus change
 export const updateOrderStatus = async (req, res) => {
-  const {id, paymentStatus} = req.body;
+  const { id, paymentStatus } = req.body;
   try {
     const updatedOrder = await Checkout.findByIdAndUpdate(id, { paymentStatus }, { new: true });
     if (!updatedOrder) {
@@ -209,23 +226,23 @@ export const updateCheckoutDetails = async (req, res) => {
 
   // Validate required fields
   if (!user || !user.firstName || !user.email || !user.phone) {
-    return res.status(400).json({ 
-      error: 'User fields (firstName, email, phone) are required.' 
+    return res.status(400).json({
+      error: 'User fields (firstName, email, phone) are required.'
     });
   }
 
-  if (!billingAddress || !billingAddress.addressLine || !billingAddress.country || 
-      !billingAddress.state || !billingAddress.city || !billingAddress.postalCode) {
-    return res.status(400).json({ 
-      error: 'All billing address fields are required.' 
+  if (!billingAddress || !billingAddress.addressLine || !billingAddress.country ||
+    !billingAddress.state || !billingAddress.city || !billingAddress.postalCode) {
+    return res.status(400).json({
+      error: 'All billing address fields are required.'
     });
   }
 
-  if (!shippingAddress || !shippingAddress.firstName || !shippingAddress.addressLine || 
-      !shippingAddress.country || !shippingAddress.state || !shippingAddress.city || 
-      !shippingAddress.postalCode || !shippingAddress.email || !shippingAddress.phone) {
-    return res.status(400).json({ 
-      error: 'All shipping address fields are required.' 
+  if (!shippingAddress || !shippingAddress.firstName || !shippingAddress.addressLine ||
+    !shippingAddress.country || !shippingAddress.state || !shippingAddress.city ||
+    !shippingAddress.postalCode || !shippingAddress.email || !shippingAddress.phone) {
+    return res.status(400).json({
+      error: 'All shipping address fields are required.'
     });
   }
 
@@ -248,10 +265,10 @@ export const updateCheckoutDetails = async (req, res) => {
 
       // Recalculate GST (10%)
       newGst = productsSubtotal * 0.10;
-      
+
       // Apply discount if exists
       const discountAmount = currentCheckout.discount ? (productsSubtotal * currentCheckout.discount / 100) : 0;
-      
+
       // Calculate new total: subtotal + shipping + gst - discount
       newTotal = productsSubtotal + currentCheckout.shipping + newGst - discountAmount;
     }
@@ -323,7 +340,7 @@ export const updateStatus = async (req, res) => {
 // for Quote api
 
 export const quoteSaver = async (req, res) => {
-  const { name, delivery, email, phone, comment,product,productId,price,quantity,description} = req.body;
+  const { name, delivery, email, phone, comment, product, productId, price, quantity, description } = req.body;
   console.log(req.body, req.file, 'req file');
 
   try {
@@ -340,7 +357,7 @@ export const quoteSaver = async (req, res) => {
       // Convert buffer to base64 data URI for Cloudinary upload
       const b64 = Buffer.from(req.file.buffer).toString('base64');
       const dataURI = `data:${req.file.mimetype};base64,${b64}`;
-      
+
       const fileUpload = await cloudinary.uploader.upload(dataURI, {
         resource_type: 'auto', // Changed from 'image' to 'auto' to handle different file types
         folder: 'quotes', // Optional: organize uploads in a folder
@@ -375,12 +392,12 @@ export const quoteSaver = async (req, res) => {
 
 
 export const getAllQuotes = async (req, res) => {
-  const { 
-    page = 1, 
-    limit = 10, 
-    search = '', 
-    sortBy = 'createdAt', 
-    sortOrder = 'desc' 
+  const {
+    page = 1,
+    limit = 10,
+    search = '',
+    sortBy = 'createdAt',
+    sortOrder = 'desc'
   } = req.query;
 
   try {
@@ -396,23 +413,23 @@ export const getAllQuotes = async (req, res) => {
       // Fetch all quotes for search filtering
       const allQuotes = await Quote.find({})
         .sort(sortObj);
-      
+
       const filteredQuotes = allQuotes.filter(quote => {
         const quoteName = (quote.name || '').toLowerCase();
         const quoteEmail = (quote.email || '').toLowerCase();
         const quotePhone = (quote.phone || '').toLowerCase();
         const searchLower = search.toLowerCase();
-        
-        return quoteName.includes(searchLower) || 
-               quoteEmail.includes(searchLower) || 
-               quotePhone.includes(searchLower);
+
+        return quoteName.includes(searchLower) ||
+          quoteEmail.includes(searchLower) ||
+          quotePhone.includes(searchLower);
       });
 
       const paginatedQuotes = filteredQuotes.slice(skip, skip + parseInt(limit));
       const totalQuotes = filteredQuotes.length;
 
-      return res.status(200).json({ 
-        success: true, 
+      return res.status(200).json({
+        success: true,
         quotes: paginatedQuotes,
         pagination: {
           currentPage: parseInt(page),
@@ -432,8 +449,8 @@ export const getAllQuotes = async (req, res) => {
 
     const totalQuotes = await Quote.countDocuments({});
 
-    res.status(200).json({ 
-      success: true, 
+    res.status(200).json({
+      success: true,
       quotes,
       pagination: {
         currentPage: parseInt(page),
@@ -455,36 +472,36 @@ export const getAllQuotes = async (req, res) => {
 export const deleteOrder = async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     // Validate if ID is a valid MongoDB ObjectId
     if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Invalid order ID format' 
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid order ID format'
       });
     }
-    
+
     // Find and delete the order
     const deletedOrder = await Checkout.findByIdAndDelete(id);
-    
+
     // Check if order existed
     if (!deletedOrder) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Order not found' 
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found'
       });
     }
-    
-    res.status(200).json({ 
-      success: true, 
-      message: 'Order deleted successfully' 
+
+    res.status(200).json({
+      success: true,
+      message: 'Order deleted successfully'
     });
-    
+
   } catch (error) {
     console.error('Error deleting order:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Internal server error while deleting order' 
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error while deleting order'
     });
   }
 };
@@ -569,21 +586,21 @@ export const sendDeliveryEmail = async (req, res) => {
         <h4>Shipping address</h4>
         <p>
           ${escapeHtml(
-            [
-              order.shippingAddress?.firstName,
-              order.shippingAddress?.lastName,
-            ]
-              .filter(Boolean)
-              .join(" ")
-          ) || ""}
+      [
+        order.shippingAddress?.firstName,
+        order.shippingAddress?.lastName,
+      ]
+        .filter(Boolean)
+        .join(" ")
+    ) || ""}
           <br/>
           ${escapeHtml(order.shippingAddress?.addressLine || "")}
           <br/>
           ${escapeHtml(
-            [order.shippingAddress?.city, order.shippingAddress?.state, order.shippingAddress?.postalCode]
-              .filter(Boolean)
-              .join(", ")
-          )}
+      [order.shippingAddress?.city, order.shippingAddress?.state, order.shippingAddress?.postalCode]
+        .filter(Boolean)
+        .join(", ")
+    )}
           <br/>
           ${escapeHtml(order.shippingAddress?.country || "")}
         </p>

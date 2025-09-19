@@ -7,6 +7,7 @@ const connectCloudinary = async () => {
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME, // e.g., 'your-cloud-name'
     api_key: process.env.CLOUDINARY_API_KEY, // e.g., 'your-api-key'
     api_secret: process.env.CLOUDINARY_API_SECRET, // e.g., 'your-api-secret'
+    timeout: 60000,
   });
 
   isConnected = true;

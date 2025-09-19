@@ -12,7 +12,7 @@ import connectCloudinary from "./config/cloudinary.js";
 import serverless from "serverless-http";
 import supplierMarginModel from "./models/SupplierMargin.js";
 import { CustomProductName } from "./models/CustomProductName.js";
-import { addDiscount, getGlobalDiscount, removeGlobalDiscount } from "./controllers/productDiscount.js";
+import { addDiscount, addGlobalMargin, getGlobalDiscount, getGlobalMargin, removeGlobalDiscount, removeGlobalMargin } from "./controllers/productDiscount.js";
 import { addGlobalDiscount } from "./controllers/productDiscount.js";
 import GlobalDiscount from "./models/GlobalDiscount.js";
 import ProductDiscount from "./models/ProductDiscount.js";
@@ -26,6 +26,7 @@ import BestSellerModel from "./models/bestSellers.js";
 import { body } from "express-validator";
 import Stripe from "stripe";
 import Prioritize from "./models/Prioritize.js";
+import GlobalMargin from "./models/globalMargin.js";
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 connectDB();
 const app = express();
@@ -192,6 +193,9 @@ app.post("/api/unignore-supplier", async (req, res) => {
 app.post('/api/add-discount/add-global-discount', addGlobalDiscount);
 app.get('/api/add-discount/global-discount', getGlobalDiscount);
 app.delete('/api/add-discount/remove-global-discount', removeGlobalDiscount);
+app.post('/api/add-margin/add-global-margin', addGlobalMargin);
+app.get('/api/add-margin/global-margin', getGlobalMargin);
+app.delete('/api/add-margin/remove-global-margin', removeGlobalMargin);
 
 
 const AUTH_TOKEN = "NDVhOWFkYWVkZWJmYTU0Njo3OWQ4MzJlODdmMjM4ZTJhMDZlNDY3MmVlZDIwYzczYQ";
@@ -473,92 +477,145 @@ export async function getProductDiscount(productId) {
     };
   }
 }
-export function addMarginToAllPrices(product, marginAmount) {
-  const processedProduct = JSON.parse(JSON.stringify(product));
+export async function addMarginToAllPrices(product, marginAmount = 0) {
+  try {
+    // Check if global margin is active
+    const globalMargin = await GlobalMargin.findOne({ isActive: true });
 
-  function processObject(obj, parentKey = '') {
-    if (Array.isArray(obj)) {
-      return obj.map(item => processObject(item, parentKey));
+    let finalMarginAmount;
+    let marginInfo;
+
+    if (globalMargin && globalMargin.margin > 0 && marginAmount === 0) {
+      // Only use global margin if no other margins are applied (marginAmount is 0)
+      finalMarginAmount = globalMargin.margin;
+      marginInfo = {
+        isGlobalMarginActive: true,
+        globalMargin: globalMargin.margin,
+        supplierMargin: 0,
+        categoryMargin: 0,
+        totalMargin: globalMargin.margin,
+        originalMarginAmount: marginAmount
+      };
+    } else {
+      // Use the passed marginAmount (supplier + category margins take priority)
+      finalMarginAmount = marginAmount;
+      marginInfo = {
+        isGlobalMarginActive: false,
+        globalMargin: 0,
+        supplierMargin: 0, // Will be set by calling API
+        categoryMargin: 0, // Will be set by calling API
+        totalMargin: marginAmount,
+        originalMarginAmount: marginAmount
+      };
     }
 
-    if (obj && typeof obj === 'object') {
-      const processed = {};
+    const processedProduct = JSON.parse(JSON.stringify(product));
 
-      for (const [key, value] of Object.entries(obj)) {
-        if (key === 'price' && typeof value === 'number') {
-          // Add margin to price fields
-          processed[key] = value + marginAmount;
-        } else if (key === 'setup' && typeof value === 'number') {
-          // Add margin to setup costs
-          processed[key] = value + marginAmount;
-        } else if (key === 'price_breaks' && Array.isArray(value)) {
-          // Only add margin to price_breaks if parent is base_price
-          if (parentKey === 'base_price') {
-            processed[key] = value.map(priceBreak => ({
-              ...priceBreak,
-              price: priceBreak.price + marginAmount
-            }));
-          } else {
-            // Don't add margin if parent is additions or any other key
-            processed[key] = value;
-          }
-        } else if (key.toLowerCase().includes('price') && typeof value === 'number') {
-          // Handle any other price-related fields
-          processed[key] = value + marginAmount;
-        } else {
-          // Recursively process nested objects, passing the current key as parentKey
-          processed[key] = processObject(value, key);
-        }
+    function processObject(obj, parentKey = '') {
+      if (Array.isArray(obj)) {
+        return obj.map(item => processObject(item, parentKey));
       }
 
-      return processed;
+      if (obj && typeof obj === 'object') {
+        const processed = {};
+
+        for (const [key, value] of Object.entries(obj)) {
+          if (key === 'price' && typeof value === 'number') {
+            // Add margin to price fields
+            processed[key] = value + finalMarginAmount;
+          } else if (key === 'setup' && typeof value === 'number') {
+            // Add margin to setup costs
+            processed[key] = value + finalMarginAmount;
+          } else if (key === 'price_breaks' && Array.isArray(value)) {
+            // Only add margin to price_breaks if parent is base_price
+            if (parentKey === 'base_price') {
+              processed[key] = value.map(priceBreak => ({
+                ...priceBreak,
+                price: priceBreak.price + finalMarginAmount
+              }));
+            } else {
+              // Don't add margin if parent is additions or any other key
+              processed[key] = value;
+            }
+          } else if (key.toLowerCase().includes('price') && typeof value === 'number') {
+            // Handle any other price-related fields
+            processed[key] = value + finalMarginAmount;
+          } else {
+            // Recursively process nested objects, passing the current key as parentKey
+            processed[key] = processObject(value, key);
+          }
+        }
+
+        return processed;
+      }
+
+      return obj;
     }
 
-    return obj;
+    const result = processObject(processedProduct);
+
+    // Add margin info to the processed product
+    result.marginInfo = marginInfo;
+
+    return result;
+
+  } catch (error) {
+    console.error('Error in addMarginToAllPrices:', error);
+    // Fallback to original behavior if there's an error
+    const processedProduct = JSON.parse(JSON.stringify(product));
+
+    function processObject(obj, parentKey = '') {
+      if (Array.isArray(obj)) {
+        return obj.map(item => processObject(item, parentKey));
+      }
+
+      if (obj && typeof obj === 'object') {
+        const processed = {};
+
+        for (const [key, value] of Object.entries(obj)) {
+          if (key === 'price' && typeof value === 'number') {
+            processed[key] = value + marginAmount;
+          } else if (key === 'setup' && typeof value === 'number') {
+            processed[key] = value + marginAmount;
+          } else if (key === 'price_breaks' && Array.isArray(value)) {
+            if (parentKey === 'base_price') {
+              processed[key] = value.map(priceBreak => ({
+                ...priceBreak,
+                price: priceBreak.price + marginAmount
+              }));
+            } else {
+              processed[key] = value;
+            }
+          } else if (key.toLowerCase().includes('price') && typeof value === 'number') {
+            processed[key] = value + marginAmount;
+          } else {
+            processed[key] = processObject(value, key);
+          }
+        }
+
+        return processed;
+      }
+
+      return obj;
+    }
+
+    const result = processObject(processedProduct);
+
+    // Add fallback margin info
+    result.marginInfo = {
+      isGlobalMarginActive: false,
+      globalMargin: 0,
+      supplierMargin: 0,
+      categoryMargin: 0,
+      totalMargin: marginAmount,
+      originalMarginAmount: marginAmount,
+      error: true
+    };
+
+    return result;
   }
-
-  return processObject(processedProduct);
 }
-// function addMarginToAllPrices(product, marginAmount) {
-//   const processedProduct = JSON.parse(JSON.stringify(product));
-//   function processObject(obj) {
-//     if (Array.isArray(obj)) {
-//       return obj.map(item => processObject(item));
-//     }
-//     if (obj && typeof obj === 'object') {
-//       const processed = {};
 
-//       for (const [key, value] of Object.entries(obj)) {
-//         if (key === 'price' && typeof value === 'number') {
-//           // Add margin to price fields
-//           processed[key] = value + marginAmount;
-//         } else if (key === 'setup' && typeof value === 'number') {
-//           // Add margin to setup costs
-//           processed[key] = value + marginAmount;
-//         } else if (key === 'price_breaks' && Array.isArray(value)) {
-//           // Handle price breaks array
-//           processed[key] = value.map(priceBreak => ({
-//             ...priceBreak,
-//             price: priceBreak.price + marginAmount
-//           }));
-//         } else if (key.toLowerCase().includes('price') && typeof value === 'number') {
-//           // Handle any other price-related fields
-//           processed[key] = value + marginAmount;
-//         } else {
-//           // Recursively process nested objects
-//           processed[key] = processObject(value);
-//         }
-//       }
-
-//       return processed;
-//     }
-
-//     return obj;
-//   }
-
-//   return processObject(processedProduct);
-// }
-// Updated client-products endpoint with discount calculation
 app.get("/api/client-products", async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 100;
@@ -644,7 +701,7 @@ app.get("/api/client-products", async (req, res) => {
         const totalMargin = supplierMargin + categoryMargin;
 
         // Apply total margin to all price-related fields
-        let processedProduct = addMarginToAllPrices(product, totalMargin);
+        let processedProduct = await addMarginToAllPrices(product, totalMargin);
 
         // Then apply discount
         let discountPercentage = globalDiscountPercentage;
@@ -1617,7 +1674,7 @@ app.get("/api/client-products-discounted", async (req, res) => {
         const totalMargin = supplierMargin + categoryMargin;
 
         // Apply total margin to all price-related fields
-        let processedProduct = addMarginToAllPrices(product, totalMargin);
+        let processedProduct = await addMarginToAllPrices(product, totalMargin);
 
         // Then apply discount
         let discountPercentage = globalDiscountPercentage;
@@ -1866,277 +1923,7 @@ app.get("/api/client-products-bestSellers", async (req, res) => {
     res.status(500).json({ error: "Failed to fetch trending products" });
   }
 });
-// app.get('/myapi', async (req, res) => {
-//   const page = parseInt(req.query.page) || 1;
-//   const AUTH_TOKEN = "NDVhOWFkYWVkZWJmYTU0Njo3OWQ4MzJlODdmMjM4ZTJhMDZlNDY3MmVlZDIwYzczYQ";
-//   const headers = {
-//     "x-auth-token": AUTH_TOKEN,
-//     "Content-Type": "application/json",
-//   };
 
-//   try {
-//     // Fetch products
-//     const prodResp = await axios.get(`https://api.promodata.com.au/products?page=${page}`, {
-//       headers,
-//     });
-
-//     // Fetch discounts, supplier margins, category margins, and existing margins
-//     const discounts = await ProductDiscount.find();
-//     const supplierMargins = await supplierMarginModel.find();
-//     const categoryMargins = await categoryMarginModal.find(); // Add this line - you need to import this model
-//     const existingMargins = await addMarginModel.find();
-
-//     // Create supplier margins map for quick lookup
-//     const supplierMarginsMap = {};
-//     supplierMargins.forEach(item => {
-//       supplierMarginsMap[item.supplierId] = item.margin;
-//     });
-
-//     // Create category margins map for quick lookup (supplierId-categoryId as key)
-//     const categoryMarginsMap = {};
-// categoryMargins.forEach(item => {
-//   const key = `${item.supplierId}_${item.categoryId}`; // Use underscore for consistency
-//   categoryMarginsMap[key] = item.margin;
-// });
-
-//     // Create existing margins map for quick lookup
-//     const existingMarginsMap = {};
-//     existingMargins.forEach(item => {
-//       existingMarginsMap[item.productId] = item;
-//     });
-
-//     const response = prodResp.data.data;
-//     const newResponse = [];
-//     const discountedProductIds = discounts.map(discount => discount.productId);
-
-//     // Helper function to get the appropriate margin for a product
-//     const getMarginForProduct = (item) => {
-//   const supplierId = item.supplier?.supplier_id;
-//   // FIX: Use correct path to category ID
-//   const categoryId = item.product?.categorisation?.product_type?.type_group_id;
-
-//   // Get supplier margin
-//   const supplierMargin = supplierMarginsMap[supplierId] || 0;
-
-//   // Get category margin using correct key format (underscore, not hyphen)
-//   const categoryKey = `${supplierId}_${categoryId}`;
-//   const categoryMargin = categoryMarginsMap[categoryKey] || 0;
-
-//   // FIX: Add both margins together (like in /api/client-products)
-//   const totalMargin = supplierMargin + categoryMargin;
-
-//   return totalMargin;
-// };
-
-
-//     // First loop: Process discounts
-//     for (const item of response) {
-//       if (discountedProductIds.includes(item.meta.id)) {
-//         // Get appropriate margin for this product (category or supplier)
-//         const margin = getMarginForProduct(item);
-
-//         // Calculate margined price (base price + margin)
-//         const basePrice = item.product.prices?.price_groups[0]?.base_price?.price_breaks[0]?.price || item.product.prices?.price_groups[0]?.additions?.price_breaks[0]?.price ||0;
-//         const marginedPrice = basePrice + margin;
-
-//         const backendUrl = req.protocol + '://' + req.get('host');
-//         const resp = await fetch(`${backendUrl}/api/add-discount/add-discount`, {
-//           method: 'POST',
-//           headers: {
-//             'Content-Type': 'application/json'
-//           },
-//           body: JSON.stringify({
-//             productId: item.meta.id,
-//             discount: discounts.find(discount => discount.productId === item.meta.id).discount,
-//             basePrice: marginedPrice // Using margined price instead of base price
-//           })
-//         });
-
-//         const discountResponse = await resp.json();
-//         newResponse.push(discountResponse.data.message);
-//       } else {
-//         const backendUrl = req.protocol + '://' + req.get('host');
-//         const margin = getMarginForProduct(item);
-
-//         // Calculate margined price (base price + margin)
-//         const basePrice = item.product.prices?.price_groups[0]?.base_price?.price_breaks[0]?.price || item.product.prices?.price_groups[0]?.additions?.price_breaks[0]?.price ||0;
-//         const marginedPrice = basePrice + margin;
-//         const resp = await fetch(`${backendUrl}/api/add-discount/add-discount`, {
-//           method: 'POST',
-//           headers: {
-//             'Content-Type': 'application/json'
-//           },
-//           body: JSON.stringify({
-//             productId: item.meta.id,
-//             discount: 0,
-//             basePrice: marginedPrice 
-//           })
-//         });
-
-//         const discountResponse = await resp.json();
-//         newResponse.push(discountResponse.data);
-//       }
-//     }
-
-//     // Second loop: Process margins for all discounted products (using discounted prices)
-//     for (const item of response) {
-//       if (discountedProductIds.includes(item.meta.id)) {
-//         // Get appropriate margin for this product (category or supplier)
-//         const margin = getMarginForProduct(item);
-
-//         // Calculate base price with margin
-//         const basePrice = item.product.prices?.price_groups[0]?.base_price?.price_breaks[0].price || item.product.prices?.price_groups[0]?.additions?.price_breaks[0]?.price ||0;
-//         const marginedPrice = (basePrice==0?0:basePrice) + margin;
-
-//         // Check if this product has a discount applied (from the previous loop)
-//         let priceForMargin = marginedPrice;
-
-//         // If product has discount, we need to get the discounted price
-//         if (discountedProductIds.includes(item.meta.id)) {
-//           const discountInfo = discounts.find(discount => discount.productId === item.meta.id);
-//           if (discountInfo) {
-//             const discountAmount = (marginedPrice * discountInfo.discount) / 100;
-//             priceForMargin = marginedPrice - discountAmount;
-//           }
-//         }
-
-//         const existingMargin = existingMarginsMap[item.meta.id];
-//         const marginValue = existingMargin ? existingMargin.margin : 0;
-
-//         const backendUrl = req.protocol + '://' + req.get('host');
-//         const resp = await fetch(`${backendUrl}/api/product-margin/add-margin`, {
-//           method: 'POST',
-//           headers: {
-//             'Content-Type': 'application/json'
-//           },
-//           body: JSON.stringify({
-//             productId: item.meta.id,
-//             margin: marginValue,
-//             basePrice: priceForMargin // Using discounted price if available
-//           })
-//         });
-
-//         const marginResponse = await resp.json();
-//         newResponse.push(marginResponse.data.message);
-//       }
-//     }
-
-//     res.json(newResponse);
-
-//   } catch (error) {
-//     console.error("Error in /myapi:", error);
-//     res.status(500).json({ error: "Failed to process products" });
-//   }
-// });
-// app.get('/myapi2', async (req, res) => {
-//   const AUTH_TOKEN = "NDVhOWFkYWVkZWJmYTU0Njo3OWQ4MzJlODdmMjM4ZTJhMDZlNDY3MmVlZDIwYzczYQ";
-//   const headers = {
-//     "x-auth-token": AUTH_TOKEN,
-//     "Content-Type": "application/json",
-//   };
-
-//   try {
-//     // Fetch products
-//     const prodResp = await axios.get(`https://api.promodata.com.au/products`, {
-//       headers,
-//     });
-
-//     // Fetch global discount, supplier margins, and existing margins
-//     const globalDiscount = await GlobalDiscount.findOne({ isActive: true });
-//     const supplierMargins = await supplierMarginModel.find();
-//     const existingMargins = await addMarginModel.find();
-
-//     // Create margins map for quick lookup
-//     const marginsMap = {};
-//     supplierMargins.forEach(item => {
-//       marginsMap[item.supplierId] = item.margin;
-//     });
-
-//     // Create existing margins map for quick lookup
-//     const existingMarginsMap = {};
-//     existingMargins.forEach(item => {
-//       existingMarginsMap[item.productId] = item;
-//     });
-
-//     const response = prodResp.data.data;
-//     const newResponse = [];
-//     const globalDiscountPercentage = globalDiscount ? globalDiscount.discount : 0;
-
-//     // Process all products with global discount and margins
-//     for (const item of response) {
-//       try {
-//         // Get supplier margin for this product
-//         const supplierId = item.supplier?.supplier_id;
-//         const supplierMargin = marginsMap[supplierId] || 0;
-
-//         // Get base price from product
-//         const basePrice = item?.product?.prices?.price_groups?.[0]?.base_price?.price_breaks?.[0]?.price;
-
-//         if (!basePrice) {
-
-//           continue;
-//         }
-
-//         // Step 1: Add supplier margin to base price
-//         const marginedPrice = basePrice + supplierMargin;
-
-//         // Step 2: Apply global discount if exists
-//         let finalPrice = marginedPrice;
-//         if (globalDiscountPercentage > 0) {
-//           const discountAmount = (marginedPrice * globalDiscountPercentage) / 100;
-//           finalPrice = marginedPrice - discountAmount;
-//         }
-
-//         // Step 3: Get existing product margin and add it to the globally discounted price
-//         const existingMargin = existingMarginsMap[item.meta.id];
-//         const marginValue = existingMargin ? existingMargin.margin : 0;
-
-//         const backendUrl = req.protocol + '://' + req.get('host');
-//         const resp = await fetch(`${backendUrl}/api/product-margin/add-margin`, {
-//           method: 'POST',
-//           headers: {
-//             'Content-Type': 'application/json'
-//           },
-//           body: JSON.stringify({
-//             productId: item.meta.id,
-//             margin: marginValue,
-//             basePrice: finalPrice // Using globally discounted price as base
-//           })
-//         });
-
-//         const marginResponse = await resp.json();
-//         newResponse.push({
-//           productId: item.meta.id,
-//           originalPrice: basePrice,
-//           supplierMargin: supplierMargin,
-//           marginedPrice: marginedPrice,
-//           globalDiscount: globalDiscountPercentage,
-//           globallyDiscountedPrice: finalPrice,
-//           existingMargin: marginValue,
-//           response: marginResponse.data?.message || marginResponse.data
-//         });
-
-//       } catch (error) {
-//         console.error(`Error processing product ${item.meta.id}:`, error);
-//         newResponse.push({
-//           productId: item.meta.id,
-//           error: error.message
-//         });
-//       }
-//     }
-
-//     res.json({
-//       globalDiscountApplied: globalDiscountPercentage,
-//       totalProductsProcessed: newResponse.length,
-//       results: newResponse
-//     });
-
-//   } catch (error) {
-//     console.error("Error in /myapi2:", error);
-//     res.status(500).json({ error: "Failed to process products with global discount" });
-//   }
-// });
-// Updated single product endpoint with discount calculation
 app.get("/api/single-product/:id", async (req, res) => {
   const { id } = req.params;
   const AUTH_TOKEN = "NDVhOWFkYWVkZWJmYTU0Njo3OWQ4MzJlODdmMjM4ZTJhMDZlNDY3MmVlZDIwYzczYQ";
@@ -2177,21 +1964,21 @@ app.get("/api/single-product/:id", async (req, res) => {
     const categoryMarginAmount = categoryMargin?.margin || 0;
     const totalMargin = supplierMarginAmount + categoryMarginAmount;
 
-    // Apply total margin first
-    let processedProduct = addMarginToAllPrices(product, totalMargin);
+    // UPDATED: Apply total margin first (now with await since it's async)
+    let processedProduct = await addMarginToAllPrices(product, totalMargin);
+
+    // UPDATED: Update marginInfo with actual supplier and category values if not using global margin
+    if (!processedProduct.marginInfo.isGlobalMarginActive) {
+      processedProduct.marginInfo.supplierMargin = supplierMarginAmount;
+      processedProduct.marginInfo.categoryMargin = categoryMarginAmount;
+    }
 
     // Apply discount to all prices if discount exists
     if (discountInfo.discount > 0) {
       processedProduct = applyDiscountToProduct(processedProduct, discountInfo.discount);
     }
 
-    // Add margin and discount metadata to product
-    processedProduct.marginInfo = {
-      supplierMargin: supplierMarginAmount,
-      categoryMargin: categoryMarginAmount,
-      totalMargin: totalMargin
-    };
-
+    // Add discount info (marginInfo is already handled by the helper function)
     processedProduct.discountInfo = discountInfo;
 
     // Apply custom name if exists

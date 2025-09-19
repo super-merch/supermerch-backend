@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import GlobalDiscount from "../models/GlobalDiscount.js";
 import jwt from "jsonwebtoken";
 import nodemailer from 'nodemailer';
+import GlobalMargin from '../models/globalMargin.js'
 
 export const addGlobalDiscount = async (req, res) => {
   const { discount } = req.body;
@@ -50,6 +51,7 @@ export const getGlobalDiscount = async (req, res) => {
         data: { discount: 0, isActive: false }
       });
     }
+    // console.log(globalDiscount)
 
     return res.status(200).json({
       message: "Global discount fetched successfully",
@@ -75,6 +77,75 @@ export const removeGlobalDiscount = async (req, res) => {
   }
 };
 
+export const addGlobalMargin = async (req, res) => {
+  const { margin } = req.body;
+
+  if (margin === undefined || margin < 0) {
+    return res.status(400).json({ 
+      message: 'Margin amount is required and must be 0 or greater' 
+    });
+  }
+
+  try {
+    // Remove all existing individual product margins (if you have ProductMargin model)
+    // await ProductMargin.deleteMany({});
+
+    // Remove any existing global margin
+    await GlobalMargin.deleteMany({});
+
+    // Create new global margin
+    const newGlobalMargin = new GlobalMargin({
+      margin: parseFloat(margin),
+      isActive: true
+    });
+
+    await newGlobalMargin.save();
+
+    return res.status(201).json({
+      message: 'Global margin added successfully. All individual product margins have been removed.',
+      data: newGlobalMargin,
+    });
+  } catch (error) {
+    console.error('Error adding global margin:', error);
+    return res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// Get current global margin
+export const getGlobalMargin = async (req, res) => {
+  try {
+    const globalMargin = await GlobalMargin.findOne({ isActive: true });
+    
+    if (!globalMargin) {
+      return res.status(200).json({
+        message: "No global margin active",
+        data: { margin: 0, isActive: false }
+      });
+    }
+
+    return res.status(200).json({
+      message: "Global margin fetched successfully",
+      data: globalMargin
+    });
+  } catch (error) {
+    console.error("Error fetching global margin:", error);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+// Remove global margin
+export const removeGlobalMargin = async (req, res) => {
+  try {
+    await GlobalMargin.deleteMany({});
+    
+    return res.status(200).json({
+      message: "Global margin removed successfully"
+    });
+  } catch (error) {
+    console.error("Error removing global margin:", error);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
 // export const addDiscount = async (req, res) => {
 
 //   const { productId, discount, basePrice } = req.body;
