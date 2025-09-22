@@ -30,7 +30,7 @@ const addCoupen = async (req, res) => {
             return res.status(400).json({ message: "Coupon code already exists" });
         }
         
-        // Create new coupon
+        // Create new coupon (isActive defaults to true)
         const newCoupon = await coupenModel.create({ 
             coupen: couponCode, 
             discount: Number(discount) 
@@ -75,7 +75,8 @@ const matchCoupen = async (req, res) => {
         }
         
         const foundCoupon = await coupenModel.findOne({ 
-            coupen: coupen.toUpperCase().trim() 
+            coupen: coupen.toUpperCase().trim(),
+            isActive: true // Only match active coupons
         });
         
         if (foundCoupon) {
@@ -96,4 +97,28 @@ const matchCoupen = async (req, res) => {
     }
 }
 
-export { getCoupen, addCoupen, deleteCoupen, matchCoupen };
+// New function to toggle coupon active status
+const toggleCoupenStatus = async (req, res) => {
+    const { id } = req.params;
+    
+    try {
+        const coupon = await coupenModel.findById(id);
+        if (!coupon) {
+            return res.status(404).json({ message: "Coupon not found" });
+        }
+        
+        // Toggle the isActive status
+        coupon.isActive = !coupon.isActive;
+        await coupon.save();
+        
+        const statusText = coupon.isActive ? "activated" : "deactivated";
+        res.status(200).json({ 
+            data: coupon,
+            message: `Coupon ${statusText} successfully` 
+        });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+}
+
+export { getCoupen, addCoupen, deleteCoupen, matchCoupen, toggleCoupenStatus };
