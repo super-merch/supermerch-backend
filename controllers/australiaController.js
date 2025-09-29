@@ -5,39 +5,39 @@ import supplierMarginModel from "../models/SupplierMargin.js";
 import { addMarginToAllPrices, applyCustomNamesToProducts, applyDiscountToProduct, getCustomNames, getProductDiscount } from "../server.js";
 
 export const addToAustralia = async (req, res) => {
-    try {
-        const { id } = req.body;
-        const found = await australiaMade.findOne({ id });
-        if (found) {
-            return res.status(200).json("Already added");
-        }
-        const newAustralia = new australiaMade({  // Changed from australiaModel to australiaMade
-            id,
-        });
-        await newAustralia.save();
-        res.status(200).json(newAustralia);
-    } catch (error) {
-        res.status(500).json({ message: error.message });
+  try {
+    const { id } = req.body;
+    const found = await australiaMade.findOne({ id });
+    if (found) {
+      return res.status(200).json("Already added");
     }
+    const newAustralia = new australiaMade({  // Changed from australiaModel to australiaMade
+      id,
+    });
+    await newAustralia.save();
+    res.status(200).json(newAustralia);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 };
 
 export const removeFromAustralia = async (req, res) => {
-    try {
-        const { id } = req.params;  // Changed from req.query to req.params since you're using /:id
-        await australiaMade.deleteOne({ id });
-        res.status(200).json("Removed from Australia");
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
+  try {
+    const { id } = req.params;  // Changed from req.query to req.params since you're using /:id
+    await australiaMade.deleteOne({ id });
+    res.status(200).json("Removed from Australia");
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 };
 
 export const getAllAustralia = async (req, res) => {
-    try {
-        const australia = await australiaMade.find();
-        res.status(200).json(australia);
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
+  try {
+    const australia = await australiaMade.find();
+    res.status(200).json(australia);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 };
 
 export const getAustraliaProducts = async (req, res) => {
@@ -45,12 +45,12 @@ export const getAustraliaProducts = async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 9;
     const sortOption = req.query.sort || '';
-    const fetchAll = req.query.all === 'true'; // For price filtering
+    const fetchAll = req.query.all === 'true';
 
     // Get all Australia product IDs from database
-    const docs = await australiaMade.find();
-
-    if (!docs || docs.length === 0) {
+    const australiaDocs = await australiaMade.find().select('id productId _id');
+    
+    if (!australiaDocs || australiaDocs.length === 0) {
       return res.status(200).json({
         data: [],
         totalPages: 0,
@@ -59,47 +59,81 @@ export const getAustraliaProducts = async (req, res) => {
       });
     }
 
+    // Extract unique product IDs
+    const productIds = australiaDocs.map(doc => 
+      doc.id || doc.productId || doc._id?.toString()
+    ).filter(Boolean);
+
     const AUTH_TOKEN = process.env.PROMO_AUTH_TOKEN || 'NDVhOWFkYWVkZWJmYTU0Njo3OWQ4MzJlODdmMjM4ZTJhMDZlNDY3MmVlZDIwYzczYQ';
     const headers = {
       'x-auth-token': AUTH_TOKEN,
       'Content-Type': 'application/json',
     };
 
-    // Fetch all products from PromoData API
-    const fetchPromises = docs.map((doc) => {
-      const pid = doc.id || doc._id || doc.productId || '';
-      const url = `https://api.promodata.com.au/products/${pid}`;
-      return fetch(url, { method: 'GET', headers })
-        .then(async (resp) => {
-          if (!resp.ok) {
-            throw new Error(`Promodata fetch failed for ${pid} (status ${resp.status})`);
-          }
-          const json = await resp.json();
+    // Enhanced fetch function with retry logic
+    const fetchProductWithRetry = async (productId, retries = 3, delay = 1000) => {
+      for (let attempt = 1; attempt <= retries; attempt++) {
+        try {
+          const url = `https://api.promodata.com.au/products/${productId}`;
+          const response = await fetch(url, { 
+            method: 'GET', 
+            headers,
+            timeout: 10000 // 10 second timeout
+          });
           
-          if (json?.data?.data) return { id: pid, product: json.data.data };
-          if (json?.data) return { id: pid, product: json.data };
-          return { id: pid, product: json };
-        })
-        .catch((err) => {
-          return { id: pid, error: true, message: err.message };
-        });
-    });
+          if (!response.ok) {
+            if (response.status === 404) {
+              return { id: productId, error: true, message: 'Product not found' };
+            }
+            throw new Error(`HTTP ${response.status}`);
+          }
+          
+          const json = await response.json();
+          
+          let productData = null;
+          if (json?.data?.data) productData = json.data.data;
+          else if (json?.data) productData = json.data;
+          else productData = json;
+          
+          if (productData && productData.product) {
+            return { id: productId, product: productData, success: true };
+          }
+          
+          throw new Error('Invalid product data structure');
+          
+        } catch (error) {
+          if (attempt === retries) {
+            return { 
+              id: productId, 
+              error: true, 
+              message: `Failed after ${retries} attempts: ${error.message}` 
+            };
+          }
+          // Wait before retrying (exponential backoff)
+          await new Promise(resolve => setTimeout(resolve, delay * attempt));
+        }
+      }
+    };
 
-    const results = await Promise.all(fetchPromises);
+    // Fetch products with concurrency control (max 5 concurrent requests)
+    const BATCH_SIZE = 5;
+    const results = [];
+    
+    for (let i = 0; i < productIds.length; i += BATCH_SIZE) {
+      const batch = productIds.slice(i, i + BATCH_SIZE);
+      const batchPromises = batch.map(productId => fetchProductWithRetry(productId));
+      const batchResults = await Promise.all(batchPromises);
+      results.push(...batchResults);
+      
+      // Small delay between batches to avoid rate limiting
+      if (i + BATCH_SIZE < productIds.length) {
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+    }
 
-    // Filter out failed requests and invalid products
-    const validProducts = results.filter(item => {
-      if (!item.product || item.error) return false;
-      
-      // Check if product has valid pricing
-      const priceGroups = item.product.product?.prices?.price_groups || [];
-      const basePrice = priceGroups.find(group => group?.base_price) || {};
-      const priceBreaks = basePrice.base_price?.price_breaks || [];
-      
-      return priceBreaks.length > 0 && 
-             priceBreaks[0]?.price !== undefined && 
-             priceBreaks[0]?.price > 0;
-    });
+    // Filter successful products
+    const validProducts = results.filter(item => item.success && item.product);
+    
 
     // Apply sorting if specified
     let sortedProducts = [...validProducts];
@@ -121,7 +155,7 @@ export const getAustraliaProducts = async (req, res) => {
       });
     }
 
-    // If fetchAll is true, return all products (for price filtering)
+    // If fetchAll is true, return all products
     if (fetchAll) {
       return res.status(200).json(sortedProducts);
     }
@@ -130,69 +164,91 @@ export const getAustraliaProducts = async (req, res) => {
     const totalCount = sortedProducts.length;
     const totalPages = Math.ceil(totalCount / limit);
     const startIndex = (page - 1) * limit;
-    const endIndex = startIndex + limit;
+    const endIndex = Math.min(startIndex + limit, totalCount);
     const paginatedProducts = sortedProducts.slice(startIndex, endIndex);
 
-    // Apply margins and discounts
-    const supplierMargins = await supplierMarginModel.find();
+    // Early return if no products to process
+    if (paginatedProducts.length === 0) {
+      return res.status(200).json({
+        data: [],
+        totalPages,
+        totalCount,
+        currentPage: page,
+        itemsPerPage: limit
+      });
+    }
+
+    // Pre-fetch all margin and discount data in parallel
+    const [supplierMargins, categoryMargins, globalDiscount] = await Promise.all([
+      supplierMarginModel.find(),
+      categoryMarginModal.find(),
+      GlobalDiscount.findOne({ isActive: true })
+    ]);
+
     const marginsMap = {};
     supplierMargins.forEach(item => {
       marginsMap[String(item.supplierId)] = item.margin;
     });
 
-    const categoryMargins = await categoryMarginModal.find();
     const categoryMarginsMap = {};
     categoryMargins.forEach(item => {
       const key = `${item.supplierId}_${item.categoryId}`;
       categoryMarginsMap[key] = item.margin;
     });
 
-    const globalDiscount = await GlobalDiscount.findOne({ isActive: true });
     const globalDiscountPercentage = globalDiscount ? globalDiscount.discount : 0;
 
     // Process products with margins and discounts
     const processedProducts = await Promise.all(
       paginatedProducts.map(async (item) => {
-        const product = item.product;
-        const supplierId = String(product.supplier.supplier_id);
-        const categoryId = product.product?.categorisation?.product_type?.type_group_id;
+        try {
+          const product = item.product;
+          const supplierId = String(product.supplier.supplier_id);
+          const categoryId = product.product?.categorisation?.product_type?.type_group_id;
 
-        const supplierMargin = marginsMap[supplierId] || 0;
-        const categoryKey = `${supplierId}_${categoryId}`;
-        const categoryMargin = categoryMarginsMap[categoryKey] || 0;
-        const totalMargin = supplierMargin + categoryMargin;
+          const supplierMargin = marginsMap[supplierId] || 0;
+          const categoryKey = `${supplierId}_${categoryId}`;
+          const categoryMargin = categoryMarginsMap[categoryKey] || 0;
+          const totalMargin = supplierMargin + categoryMargin;
 
-        let processedProduct = await addMarginToAllPrices(product, totalMargin);
+          let processedProduct = await addMarginToAllPrices(product, totalMargin);
 
-        let discountPercentage = globalDiscountPercentage;
-        if (!globalDiscountPercentage) {
-          const productDiscountInfo = await getProductDiscount(product.meta.id);
-          discountPercentage = productDiscountInfo.discount || 0;
+          let discountPercentage = globalDiscountPercentage;
+          if (!globalDiscountPercentage) {
+            const productDiscountInfo = await getProductDiscount(product.meta.id);
+            discountPercentage = productDiscountInfo.discount || 0;
+          }
+
+          if (discountPercentage > 0) {
+            processedProduct = applyDiscountToProduct(processedProduct, discountPercentage);
+          }
+
+          processedProduct.marginInfo = {
+            supplierMargin,
+            categoryMargin,
+            totalMargin
+          };
+
+          processedProduct.discountInfo = {
+            discount: discountPercentage,
+            isGlobal: globalDiscountPercentage > 0
+          };
+
+          return { ...item, product: processedProduct };
+        } catch (error) {
+          console.error(`Error processing product ${item.id}:`, error);
+          return { ...item, error: true, processingError: error.message };
         }
-
-        if (discountPercentage > 0) {
-          processedProduct = applyDiscountToProduct(processedProduct, discountPercentage);
-        }
-
-        processedProduct.marginInfo = {
-          supplierMargin,
-          categoryMargin,
-          totalMargin
-        };
-
-        processedProduct.discountInfo = {
-          discount: discountPercentage,
-          isGlobal: globalDiscountPercentage > 0
-        };
-
-        return { ...item, product: processedProduct };
       })
     );
+
+    // Filter out products that failed processing
+    const successfullyProcessedProducts = processedProducts.filter(item => !item.error);
 
     // Apply custom names
     const customNames = await getCustomNames();
     const productsWithCustomNames = applyCustomNamesToProducts(
-      processedProducts.map(item => item.product), 
+      successfullyProcessedProducts.map(item => item.product), 
       customNames
     );
 

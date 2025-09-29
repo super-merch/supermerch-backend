@@ -531,7 +531,7 @@ export async function addMarginToAllPrices(product, marginAmount = 0) {
             if (parentKey === 'base_price') {
               processed[key] = value.map(priceBreak => ({
                 ...priceBreak,
-                price: priceBreak.price + finalMarginAmount
+                price: priceBreak.price + (finalMarginAmount*priceBreak.price)/100
               }));
             } else {
               // Don't add margin if parent is additions or any other key
@@ -629,7 +629,7 @@ app.get("/api/client-products", async (req, res) => {
 
   try {
     // Fetch products
-    const prodResp = await axios.get(`https://api.promodata.com.au/products?page=${page}&items_per_page=${limit}&include_discontinued=false${supplier ? `&supplier_id=${supplier}` : ''} `, {
+    const prodResp = await axios.get(`https://api.promodata.com.au/products?page=${page}&items_per_page=${limit}&include_discontinued=false${supplier ? `&supplier_id=${supplier}` : ''}`, {
       headers,
     });
 
@@ -780,7 +780,7 @@ app.get("/api/client-products/category", async (req, res) => {
 
     // Fetch products with search term
     const prodResp = await axios.post(
-      `https://api.promodata.com.au/products/search?page=${page}&items_per_page=${limit}`,
+      `https://api.promodata.com.au/products/search?page=${page}&items_per_page=${limit}&include_discontinued=false`,
       {
         search_term: category
       },
@@ -850,7 +850,7 @@ app.get("/api/client-products/category", async (req, res) => {
         const totalMargin = supplierMargin + categoryMargin;
 
         // Apply total margin to all price-related fields
-        let processedProduct = addMarginToAllPrices(product, totalMargin);
+        let processedProduct = await addMarginToAllPrices(product, totalMargin);
 
         // Then apply discount
         let discountPercentage = globalDiscountPercentage;
@@ -1062,6 +1062,24 @@ app.get("/api/client-product/category/search", async (req, res) => {
     res.status(500).json({ error: "Failed to fetch products" });
   }
 });
+app.get("/api/client-products/single/getPrice",async(req,res)=>{
+  try {
+    const AUTH_TOKEN = "NDVhOWFkYWVkZWJmYTU0Njo3OWQ4MzJlODdmMjM4ZTJhMDZlNDY3MmVlZDIwYzczYQ";
+    const headers = {
+      "x-auth-token": AUTH_TOKEN,
+      "Content-Type": "application/json",
+    };
+    const productId = req.query.productId;
+    const productResp = await axios.get(`https://api.promodata.com.au/products/${productId}`, {
+      headers
+  })
+  res.json(productResp.data.data.product.prices.price_groups[0].base_price.price_breaks[0].price);
+}
+  catch (error) {
+    console.error("Error in /api/client-products/search:", error);
+    res.status(500).json({ error: "Failed to fetch products" });
+  }
+})
 app.get("/api/client-products/search", async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const doFilter = req.query.filter !== 'false';
@@ -1149,7 +1167,7 @@ app.get("/api/client-products/search", async (req, res) => {
         const totalMargin = supplierMargin + categoryMargin;
 
         // Apply total margin to all price-related fields
-        let processedProduct = addMarginToAllPrices(product, totalMargin);
+        let processedProduct = await addMarginToAllPrices(product, totalMargin);
 
         // Then apply discount
         let discountPercentage = globalDiscountPercentage;
@@ -1316,7 +1334,7 @@ app.get("/api/client-products-trending", async (req, res) => {
         const totalMargin = supplierMargin + categoryMargin;
 
         // Apply total margin to all price-related fields
-        let processedProduct = addMarginToAllPrices(product, totalMargin);
+        let processedProduct = await addMarginToAllPrices(product, totalMargin);
 
         // Then apply discount
         let discountPercentage = globalDiscountPercentage;
@@ -1412,9 +1430,8 @@ app.get("/api/client-products-newArrival", async (req, res) => {
     }
 
     // Extract product IDs
-    const productIds = trendingProducts.map(item => item.productId); // Adjust field name as per your model
+    const productIds = trendingProducts.map(item => item.productId); 
 
-    // Fetch individual products using the specific product API
     const productPromises = productIds.map(id =>
       axios.get(`https://api.promodata.com.au/products/${id}`, { headers })
         .catch(error => {
@@ -1494,7 +1511,7 @@ app.get("/api/client-products-newArrival", async (req, res) => {
         const totalMargin = supplierMargin + categoryMargin;
 
         // Apply total margin to all price-related fields
-        let processedProduct = addMarginToAllPrices(product, totalMargin);
+        let processedProduct = await addMarginToAllPrices(product, totalMargin);
 
         // Then apply discount
         let discountPercentage = globalDiscountPercentage;
@@ -1853,7 +1870,7 @@ app.get("/api/client-products-bestSellers", async (req, res) => {
         const totalMargin = supplierMargin + categoryMargin;
 
         // Apply total margin to all price-related fields
-        let processedProduct = addMarginToAllPrices(product, totalMargin);
+        let processedProduct = await addMarginToAllPrices(product, totalMargin);
 
         // Then apply discount
         let discountPercentage = globalDiscountPercentage;
@@ -2215,7 +2232,7 @@ app.get("/api/params-products", async (req, res) => {
         const categoryMargin = categoryMarginsMap[`${supplierId2}_${categoryId2}`] || 0;
         const totalMargin = supplierMargin + categoryMargin;
 
-        let processedProduct = addMarginToAllPrices(product, totalMargin);
+        let processedProduct = await addMarginToAllPrices(product, totalMargin);
 
         // Determine discount efficiently
         let discountPercentage = globalDiscountPercentage;

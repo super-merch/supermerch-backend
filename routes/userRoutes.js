@@ -14,6 +14,7 @@ import {
   verifyResetCode,
   resetPassword,
   saveShippingAddress,
+  getSingleUser,
 
 } from "../controllers/userController.js";
 import authMiddleware from "../middleware/authMiddleware.js";
@@ -21,6 +22,7 @@ import adminMiddlewere from "../middleware/adminMiddlewere.js";
 const router = express.Router();
 
 router.get("/user", getUser);
+router.get("/single-user/:id", getSingleUser);
 
 router.post("/reset", checkUser);                    // Step 1: Check user & send code
 router.post("/verify-reset-code", verifyResetCode);  // Step 2: Verify code

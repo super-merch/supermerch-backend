@@ -67,7 +67,7 @@ export const createCheckout = async (req, res) => {
   }
 };
 
-export const  getAllProducts = async (req, res) => {
+export const getAllProducts = async (req, res) => {
   const { id } = req.params;
   const {
     page = 1,
@@ -389,6 +389,60 @@ export const quoteSaver = async (req, res) => {
       .json({ success: false, message: 'Error saving quote' });
   }
 };
+export const sendNote = async (req, res) => {
+  try {
+    const { note, email, user, billingAddress, shippingAddress, products } = req.body;
+
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+    });
+
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: "Note from Admin",
+      html: `
+        <div>
+          <h2>Order Details</h2>
+          <p><strong>Customer:</strong> ${user?.firstName || ""} ${user?.lastName || ""}</p>
+          <p><strong>Email:</strong> ${user?.email || ""}</p>
+          <p><strong>Phone:</strong> ${user?.phone || ""}</p>
+
+          <h3>Billing Address</h3>
+          <p>${billingAddress?.addressLine || ""}, ${billingAddress?.city || ""}, ${billingAddress?.state || ""}, ${billingAddress?.country || ""}, ${billingAddress?.postalCode || ""}</p>
+
+          <h3>Shipping Address</h3>
+          <p>${shippingAddress?.addressLine || ""}, ${shippingAddress?.city || ""}, ${shippingAddress?.state || ""}, ${shippingAddress?.country || ""}, ${shippingAddress?.postalCode || ""}</p>
+
+          <h3>Products</h3>
+          <ul>
+            ${products
+              ?.map(
+                (p) => `
+              <li>
+                ${p.name} - Qty: ${p.quantity} - Price: $${p.price}
+              </li>
+            `
+              )
+              .join("")}
+          </ul>
+
+          <h3>Note</h3>
+          <p>${note}</p>
+        </div>
+      `,
+    };
+
+    await transporter.sendMail(mailOptions);
+    res.json({ success: true, message: "Note sent successfully" });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Error sending note" });
+  }
+};
 
 
 export const getAllQuotes = async (req, res) => {
@@ -511,7 +565,7 @@ export const deleteOrder = async (req, res) => {
 
 export const sendDeliveryEmail = async (req, res) => {
   try {
-    const { orderId } = req.body;
+    const { orderId, status } = req.body;
     if (!orderId) {
       return res.status(400).json({ success: false, message: "orderId is required in body" });
     }
@@ -560,23 +614,51 @@ export const sendDeliveryEmail = async (req, res) => {
         const price = typeof p.price !== "undefined" ? ` — ${p.price}` : "";
         return `<li style="margin-bottom:6px;"><strong>${escapeHtml(
           name
-        )}</strong> — Quantity: ${escapeHtml(String(qty))}${price ? ` — Price: ${escapeHtml(String(p.price))}` : ""}</li>`;
+        )}</strong> — Quantity: ${escapeHtml(String(qty))}${price ? ` — Price: ${escapeHtml(String(p.price))}` : ""} $</li>`;
       })
       .join("");
 
-    const deliveredAt = new Date().toLocaleString();
     const orderIdentifier = order.orderId || order._id;
+    const deliveredAt = new Date().toLocaleString();
 
-    const subject = `Super-Merch: Order Delivered`;
+    // Dynamic subject
+    const subject = `Super-Merch: Order ${status || "Update"}`;
+
+    // Dynamic message per status
+    const statusMessage = (() => {
+      switch (status) {
+        case "Delivered":
+          return "Good news — your order has been <strong>delivered</strong>.";
+        case "Artwork Pending":
+          return "Your order is currently in <strong>artwork pending</strong> stage. Our team will review and update you soon.";
+        case "ArtWork Approved":
+          return "Your artwork has been <strong>approved</strong> and we’re moving forward!";
+        case "Branding in progress":
+          return "Your order is currently <strong>under branding</strong>. We’re working on it.";
+        case "Production Complete":
+          return "Your order’s <strong>production is complete</strong> and it will move to shipping soon.";
+        case "Shipped/In Transit":
+          return "Your order has been <strong>shipped</strong> and is on its way!";
+        case "Cancelled":
+          return "Your order has been <strong>cancelled</strong>. If this was unexpected, please contact our support.";
+        case "Returned":
+          return "Your order has been <strong>returned</strong>. Please reach out if you need further assistance.";
+        case "On Hold":
+          return "Your order is currently <strong>on hold</strong>. Our support team may contact you.";
+        default:
+          return `Your order status has been updated to <strong>${escapeHtml(status || "Unknown")}</strong>.`;
+      }
+    })();
 
     const html = `
       <div style="font-family: Arial, sans-serif; color: #111;">
         <h2>Hi ${escapeHtml(recipientName)},</h2>
-        <p>Good news — your order has been <strong>delivered</strong>.</p>
+        <p>${statusMessage}</p>
 
         <h3>Order summary</h3>
         <p><strong>Order ID:</strong> ${escapeHtml(String(orderIdentifier))}</p>
-        <p><strong>Delivered At:</strong> ${escapeHtml(deliveredAt)}</p>
+        <p><strong>Status Updated At:</strong> ${escapeHtml(deliveredAt)}</p>
+        <p><strong>Current Status:</strong> ${escapeHtml(status || "Unknown")}</p>
 
         <h4>Products</h4>
         <ul style="padding-left: 18px;">
@@ -586,10 +668,7 @@ export const sendDeliveryEmail = async (req, res) => {
         <h4>Shipping address</h4>
         <p>
           ${escapeHtml(
-      [
-        order.shippingAddress?.firstName,
-        order.shippingAddress?.lastName,
-      ]
+      [order.shippingAddress?.firstName, order.shippingAddress?.lastName]
         .filter(Boolean)
         .join(" ")
     ) || ""}
@@ -606,12 +685,13 @@ export const sendDeliveryEmail = async (req, res) => {
         </p>
 
         <p style="margin-top:12px;">
-          If you have any questions or didn't receive this order, reply to this email or contact our support.
+          If you have any questions, reply to this email or contact our support team.
         </p>
 
-        <p style="margin-top:18px;">Thanks,<br/>Your Store Team</p>
+        <p style="margin-top:18px;">Thanks,<br/>SuperMerch</p>
       </div>
     `;
+
 
     // Create transporter using Gmail (credentials from env)
     const transporter = nodemailer.createTransport({

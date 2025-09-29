@@ -13,6 +13,7 @@ import {
   deleteOrder,
   updateOrderStatus,
   sendDeliveryEmail,
+  sendNote,
 } from '../controllers/checkoutController.js';
 import authMiddleware, { optionalAuth } from '../middleware/authMiddleware.js';
 import adminMiddlewere from '../middleware/adminMiddlewere.js';
@@ -26,6 +27,7 @@ router.post(
   createCheckout
 );
 router.post('/quote', upload.single('file'), quoteSaver);
+router.post('/send-note',sendNote)
 
 router.get('/products/:id?', getAllProducts);
 
