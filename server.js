@@ -2470,7 +2470,7 @@ app.post('/create-checkout-session', async (req, res) => {
     }];
   }
 
-  const origin = process.env.FRONTEND_URL || 'http://localhost:5173';
+  const origin = process.env.FRONTEND_URL || 'http://localhost:5174';
 
   const sessionConfig = {
     payment_method_types: ['card'],

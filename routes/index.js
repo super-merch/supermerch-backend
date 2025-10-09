@@ -8,6 +8,7 @@ import favouriteRouter from "./favouriteRoute.js";
 import trendingRouter from "./trendingRoutes.js";
 import newArrival from "./newArrival.js";
 import australiaRouter from "./australiaRoutes.js";
+import commentRouter from "./orderCommentRoutes.js";
 import bestSeller from "./bestSellerRoutes.js";
 import hourProduction24Router from "./hourProductionRoutes.js";
 // <<<<<<< HEAD
@@ -37,6 +38,7 @@ router.use('/shipping',shippingRouter)
 router.use('/contact',contactRouter)
 router.use('/24hour',hourProduction24Router)
 router.use('/australia', australiaRouter);
+router.use('/comments', commentRouter);
 // <<<<<<< HEAD
 // =======
 router.use('/product-margin', marginRoutes);
