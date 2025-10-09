@@ -6,14 +6,10 @@ const customProductNameSchema = new mongoose.Schema({
     required: true,
     unique: true
   },
-  customName: {
-    type: String,
-    required: true
-  },
-  originalName: {
-    type: String,
-    required: true
-  },
+  customName: String,
+  originalName: String,
+  customDesc: String,
+  originalDesc: String,
   createdAt: {
     type: Date,
     default: Date.now

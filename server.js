@@ -274,7 +274,10 @@ export const getCustomNames = async () => {
     const customNames = await CustomProductName.find();
     const customNamesMap = {};
     customNames.forEach(item => {
-      customNamesMap[item.productId] = item.customName;
+      customNamesMap[item.productId] = {
+        customName: item.customName,
+        customDesc: item.customDesc
+      };
     });
     return customNamesMap;
   } catch (error) {
@@ -283,23 +286,34 @@ export const getCustomNames = async () => {
   }
 };
 
+
 // Helper function to apply custom names to products
 export const applyCustomNamesToProducts = (products, customNames) => {
   return products.map(product => {
     const productId = product.meta.id;
-    if (customNames[productId]) {
+    const override = customNames[productId];
+
+    if (override) {
       return {
         ...product,
         overview: {
           ...product.overview,
-          name: customNames[productId],
-          originalName: product.overview.name // Keep original name for reference
+          // Name override
+          name: override.customName || product.overview.name,
+          originalName: product.overview.name
+        },
+        product: {
+          ...product.product,
+          // Description override
+          description: override.customDesc || product.product.description,
+          originalDesc: product.product.description
         }
       };
     }
     return product;
   });
 };
+
 
 // API Endpoints
 
@@ -314,16 +328,14 @@ app.get("/api/custom-names", async (req, res) => {
   }
 });
 
-// Update or create custom product name
 app.post("/api/update-product-name", async (req, res) => {
-  const { productId, customName } = req.body;
+  const { productId, customName, customDesc } = req.body;
 
-  if (!productId || !customName) {
-    return res.status(400).json({ error: "Product ID and custom name are required" });
+  if (!productId || (!customName && !customDesc)) {
+    return res.status(400).json({ error: "Product ID and at least one field (name/description) is required" });
   }
 
   try {
-    // First, get the original product name from the 3rd party API
     const AUTH_TOKEN = "NDVhOWFkYWVkZWJmYTU0Njo3OWQ4MzJlODdmMjM4ZTJhMDZlNDY3MmVlZDIwYzczYQ";
     const headers = {
       "x-auth-token": AUTH_TOKEN,
@@ -335,32 +347,37 @@ app.post("/api/update-product-name", async (req, res) => {
       { headers }
     );
 
-    const originalName = productResponse.data.data.overview.name;
+    const productData = productResponse.data.data;
 
-    // Update or create custom name in database
+    const updatePayload = { updatedAt: new Date() };
+
+    if (customName) {
+      updatePayload.customName = customName;
+      updatePayload.originalName = productData.overview.name;
+    }
+
+    if (customDesc) {
+      updatePayload.customDesc = customDesc;
+      updatePayload.originalDesc = productData.product.description;
+    }
+
     const updatedCustomName = await CustomProductName.findOneAndUpdate(
       { productId },
-      {
-        customName,
-        originalName,
-        updatedAt: new Date()
-      },
-      {
-        upsert: true,
-        new: true
-      }
+      updatePayload,
+      { upsert: true, new: true }
     );
 
     res.json({
       success: true,
-      message: "Product name updated successfully",
+      message: "Product updated successfully",
       customName: updatedCustomName
     });
   } catch (error) {
-    console.error("Error updating product name:", error);
-    res.status(500).json({ error: "Failed to update product name" });
+    console.error("Error updating product:", error);
+    res.status(500).json({ error: "Failed to update product" });
   }
 });
+
 
 // Delete custom product name (revert to original)
 app.delete("/api/custom-name/:productId", async (req, res) => {
@@ -531,7 +548,7 @@ export async function addMarginToAllPrices(product, marginAmount = 0) {
             if (parentKey === 'base_price') {
               processed[key] = value.map(priceBreak => ({
                 ...priceBreak,
-                price: priceBreak.price + (finalMarginAmount*priceBreak.price)/100
+                price: priceBreak.price + (finalMarginAmount * priceBreak.price) / 100
               }));
             } else {
               // Don't add margin if parent is additions or any other key
@@ -1062,7 +1079,7 @@ app.get("/api/client-product/category/search", async (req, res) => {
     res.status(500).json({ error: "Failed to fetch products" });
   }
 });
-app.get("/api/client-products/single/getPrice",async(req,res)=>{
+app.get("/api/client-products/single/getPrice", async (req, res) => {
   try {
     const AUTH_TOKEN = "NDVhOWFkYWVkZWJmYTU0Njo3OWQ4MzJlODdmMjM4ZTJhMDZlNDY3MmVlZDIwYzczYQ";
     const headers = {
@@ -1072,9 +1089,9 @@ app.get("/api/client-products/single/getPrice",async(req,res)=>{
     const productId = req.query.productId;
     const productResp = await axios.get(`https://api.promodata.com.au/products/${productId}`, {
       headers
-  })
-  res.json(productResp.data.data.product.prices.price_groups[0].base_price.price_breaks[0].price);
-}
+    })
+    res.json(productResp.data.data.product.prices.price_groups[0].base_price.price_breaks[0].price);
+  }
   catch (error) {
     console.error("Error in /api/client-products/search:", error);
     res.status(500).json({ error: "Failed to fetch products" });
@@ -1430,7 +1447,7 @@ app.get("/api/client-products-newArrival", async (req, res) => {
     }
 
     // Extract product IDs
-    const productIds = trendingProducts.map(item => item.productId); 
+    const productIds = trendingProducts.map(item => item.productId);
 
     const productPromises = productIds.map(id =>
       axios.get(`https://api.promodata.com.au/products/${id}`, { headers })
@@ -1999,7 +2016,8 @@ app.get("/api/single-product/:id", async (req, res) => {
     processedProduct.discountInfo = discountInfo;
 
     // Apply custom name if exists
-    const productWithCustomName = applyCustomNamesToProducts([processedProduct], customNames)[0];
+    const productsWithCustomNames = applyCustomNamesToProducts([processedProduct], customNames);
+    const productWithCustomName = productsWithCustomNames[0];
 
     res.json({
       ...response.data,
