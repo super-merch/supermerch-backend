@@ -107,7 +107,6 @@ app.post("/api/supplier/search", async (req, res) => {
       }
     );
 
-
     res.status(200).json(response.data);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -229,7 +228,6 @@ export function applyMarginToProduct(product, margin) {
   });
 }
 
-
 app.get("/api/client-products/supplier", async (req, res) => {
   const { supplier } = req.query;
   const page = parseInt(req.query.page) || 1;
@@ -262,7 +260,6 @@ app.get("/api/client-products/supplier", async (req, res) => {
     res.json({
       data: filteredProducts,
     });
-
   } catch (error) {
     console.error("Error in /api/client-products/supplier:", error);
     res.status(500).json({ error: error.message });
@@ -313,7 +310,6 @@ export const applyCustomNamesToProducts = (products, customNames) => {
     return product;
   });
 };
-
 
 // API Endpoints
 
@@ -1073,7 +1069,6 @@ app.get("/api/client-product/category/search", async (req, res) => {
         count: prodResp.data.item_count,
       });
     }
-
   } catch (error) {
     console.error("Error in /api/client-products/search:", error);
     res.status(500).json({ error: "Failed to fetch products" });
@@ -1236,7 +1231,6 @@ app.get("/api/client-products/search", async (req, res) => {
         count: prodResp.data.item_count,
       });
     }
-
   } catch (error) {
     console.error("Error in /api/client-products/search:", error);
     res.status(500).json({ error: "Failed to fetch products" });
@@ -2233,7 +2227,6 @@ app.get("/api/params-products", async (req, res) => {
 
       // Slice using relative indices
       generalSlice = filteredNonPrioritized.slice(relativeStart, relativeEnd);
-
     }
 
     // Combine results
@@ -2302,7 +2295,6 @@ app.get("/api/params-products", async (req, res) => {
 // *********************************************************************
 // Ignore and Unignore API *********************************************************************
 app.get("/api/ignored-products", async (req, res) => {
-
   try {
     const response = await axios.get(
       "https://api.promodata.com.au/products/ignored",
