@@ -229,6 +229,14 @@ export const addDiscount = async (req, res) => {
         data: existingDiscount,
       });
     }
+    if(discount === 0){
+      //if discount 0 then delete that id's discount
+      await ProductDiscount.deleteOne({ productId });
+      return res.status(200).json({
+        message: 'Discount updated successfully',
+        data: existingDiscount,
+      });
+    }
 
     // Create a new discount entry
     const newDiscount = new ProductDiscount({
@@ -417,8 +425,8 @@ async function getProductDiscount(productId) {
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
-    user: process.env.EMAIL_USER, // Your Gmail
-    pass: process.env.EMAIL_PASS  // Your Gmail App Password
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS 
   }
 });
 

@@ -27,6 +27,7 @@ import { body } from "express-validator";
 import Stripe from "stripe";
 import Prioritize from "./models/Prioritize.js";
 import GlobalMargin from "./models/globalMargin.js";
+import paginate from "./utils/paginate.js";
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 connectDB();
 const app = express();
@@ -1257,7 +1258,7 @@ app.get("/api/client-products-trending", async (req, res) => {
         meta: {
           current_page: page,
           total: 0,
-          per_page: 10
+          per_page: 9
         }
       });
     }
@@ -1383,32 +1384,32 @@ app.get("/api/client-products-trending", async (req, res) => {
     // Get total count for pagination
     const totalTrendingCount = await trendingModel.countDocuments();
 
-    if (doFilter) {
-      const filteredProducts = productsWithCustomNames.filter(
-        p => !ignoredIds.has(p.meta.id)
-      );
+    // after productsWithCustomNames and totalTrendingCount have been calculated
 
-      res.json({
-        data: filteredProducts,
-        meta: {
-          current_page: page,
-          total: totalTrendingCount,
-          per_page: 10,
-          last_page: Math.ceil(totalTrendingCount / 10)
-        }
+    // if filtering enabled
+    if (doFilter) {
+      const filteredProducts = productsWithCustomNames.filter(p => !ignoredIds.has(p.meta.id));
+
+      const { data, currentPage, per_page,item_count, total_pages } = paginate(filteredProducts, page, 9, totalTrendingCount);
+      return res.json({
+        data,
+        currentPage,
+        per_page,
+        itemCount: item_count,
+        total_pages,
       });
     } else {
-      res.json({
-        data: productsWithCustomNames,
+      const { data, currentPage, per_page,item_count, total_pages } = paginate(productsWithCustomNames, page, 9, totalTrendingCount);
+      return res.json({
+        data,
         ignoredProductIds: Array.from(ignoredIds),
-        meta: {
-          current_page: page,
-          total: totalTrendingCount,
-          per_page: 10,
-          last_page: Math.ceil(totalTrendingCount / 10)
-        }
+        currentPage,
+        per_page,
+        itemCount: item_count,
+        total_pages
       });
     }
+
 
   } catch (error) {
     console.error("Error in /api/client-products-trending:", error);
@@ -1435,7 +1436,7 @@ app.get("/api/client-products-newArrival", async (req, res) => {
         meta: {
           current_page: page,
           total: 0,
-          per_page: 10
+          per_page: 9
         }
       });
     }
@@ -1560,32 +1561,32 @@ app.get("/api/client-products-newArrival", async (req, res) => {
     // Get total count for pagination
     const totalTrendingCount = await trendingModel.countDocuments();
 
-    if (doFilter) {
-      const filteredProducts = productsWithCustomNames.filter(
-        p => !ignoredIds.has(p.meta.id)
-      );
+    // after productsWithCustomNames and totalTrendingCount have been calculated
 
-      res.json({
-        data: filteredProducts,
-        meta: {
-          current_page: page,
-          total: totalTrendingCount,
-          per_page: 10,
-          last_page: Math.ceil(totalTrendingCount / 10)
-        }
-      });
-    } else {
-      res.json({
-        data: productsWithCustomNames,
-        ignoredProductIds: Array.from(ignoredIds),
-        meta: {
-          current_page: page,
-          total: totalTrendingCount,
-          per_page: 10,
-          last_page: Math.ceil(totalTrendingCount / 10)
-        }
-      });
-    }
+// if filtering enabled
+if (doFilter) {
+  const filteredProducts = productsWithCustomNames.filter(p => !ignoredIds.has(p.meta.id));
+
+  const { data, currentPage, per_page,item_count, total_pages } = paginate(filteredProducts, page, 9, totalTrendingCount);
+  return res.json({
+    data,
+    currentPage,
+    per_page,
+    item_count,
+    total_pages
+  });
+} else {
+  const { data, currentPage, per_page,item_count, total_pages } = paginate(productsWithCustomNames, page, 9, totalTrendingCount);
+  return res.json({
+    data,
+    ignoredProductIds: Array.from(ignoredIds),
+    currentPage,
+    per_page,
+    item_count,
+    total_pages
+  });
+}
+
 
   } catch (error) {
     console.error("Error in /api/client-products-trending:", error);
@@ -1614,13 +1615,13 @@ app.get("/api/client-products-discounted", async (req, res) => {
         meta: {
           current_page: page,
           total: 0,
-          per_page: 10
+          per_page: 9
         }
       });
     }
 
     // Extract product IDs
-    const productIds = trendingProducts.map(item => item.productId); // Adjust field name as per your model
+    const productIds = trendingProducts.map(item => item.productId);
 
     // Fetch individual products using the specific product API
     const productPromises = productIds.map(id =>
@@ -1738,34 +1739,34 @@ app.get("/api/client-products-discounted", async (req, res) => {
     const productsWithCustomNames = applyCustomNamesToProducts(processedProducts, customNames);
 
     // Get total count for pagination
-    const totalTrendingCount = await trendingModel.countDocuments();
+    const totalTrendingCount = await productDiscount.countDocuments();
 
-    if (doFilter) {
-      const filteredProducts = productsWithCustomNames.filter(
-        p => !ignoredIds.has(p.meta.id)
-      );
+    // after productsWithCustomNames and totalTrendingCount have been calculated
 
-      res.json({
-        data: filteredProducts,
-        meta: {
-          current_page: page,
-          total: totalTrendingCount,
-          per_page: 10,
-          last_page: Math.ceil(totalTrendingCount / 10)
-        }
-      });
-    } else {
-      res.json({
-        data: productsWithCustomNames,
-        ignoredProductIds: Array.from(ignoredIds),
-        meta: {
-          current_page: page,
-          total: totalTrendingCount,
-          per_page: 10,
-          last_page: Math.ceil(totalTrendingCount / 10)
-        }
-      });
-    }
+// if filtering enabled
+if (doFilter) {
+  const filteredProducts = productsWithCustomNames.filter(p => !ignoredIds.has(p.meta.id));
+
+  const { data, currentPage, per_page,item_count, total_pages } = paginate(filteredProducts, page, 9, totalTrendingCount);
+  return res.json({
+    data,
+    currentPage,
+    per_page,
+    item_count,
+    total_pages
+  });
+} else {
+  const { data, currentPage, per_page,item_count, total_pages } = paginate(productsWithCustomNames, page, 9, totalTrendingCount);
+  return res.json({
+    data,
+    ignoredProductIds: Array.from(ignoredIds),
+    currentPage,
+    per_page,
+    item_count,
+    total_pages
+  });
+}
+
 
   } catch (error) {
     console.error("Error in /api/client-products-trending:", error);
@@ -1793,7 +1794,7 @@ app.get("/api/client-products-bestSellers", async (req, res) => {
         meta: {
           current_page: page,
           total: 0,
-          per_page: 10
+          per_page: 9
         }
       });
     }
@@ -1919,32 +1920,32 @@ app.get("/api/client-products-bestSellers", async (req, res) => {
     // Get total count for pagination
     const totalTrendingCount = await trendingModel.countDocuments();
 
-    if (doFilter) {
-      const filteredProducts = productsWithCustomNames.filter(
-        p => !ignoredIds.has(p.meta.id)
-      );
+    // after productsWithCustomNames and totalTrendingCount have been calculated
 
-      res.json({
-        data: filteredProducts,
-        meta: {
-          current_page: page,
-          total: totalTrendingCount,
-          per_page: 10,
-          last_page: Math.ceil(totalTrendingCount / 10)
-        }
-      });
-    } else {
-      res.json({
-        data: productsWithCustomNames,
-        ignoredProductIds: Array.from(ignoredIds),
-        meta: {
-          current_page: page,
-          total: totalTrendingCount,
-          per_page: 10,
-          last_page: Math.ceil(totalTrendingCount / 10)
-        }
-      });
-    }
+// if filtering enabled
+if (doFilter) {
+  const filteredProducts = productsWithCustomNames.filter(p => !ignoredIds.has(p.meta.id));
+
+  const { data, currentPage, per_page,item_count, total_pages } = paginate(filteredProducts, page, 9, totalTrendingCount);
+  return res.json({
+    data,
+    currentPage,
+    per_page,
+    item_count,
+    total_pages
+  });
+} else {
+  const { data, currentPage, per_page,item_count, total_pages } = paginate(productsWithCustomNames, page, 9, totalTrendingCount);
+  return res.json({
+    data,
+    ignoredProductIds: Array.from(ignoredIds),
+    currentPage,
+    per_page,
+    item_count,
+    total_pages
+  });
+}
+
 
   } catch (error) {
     console.error("Error in /api/client-products-trending:", error);

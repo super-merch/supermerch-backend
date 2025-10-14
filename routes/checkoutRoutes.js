@@ -14,6 +14,8 @@ import {
   updateOrderStatus,
   sendDeliveryEmail,
   sendNote,
+  getEmailTemplates,
+  updateEmailTemplate,
 } from '../controllers/checkoutController.js';
 import authMiddleware, { optionalAuth } from '../middleware/authMiddleware.js';
 import adminMiddlewere from '../middleware/adminMiddlewere.js';
@@ -42,5 +44,7 @@ router.put('/status/:id', adminMiddlewere, updateStatus);
 router.delete('/delete/:id', deleteOrder);
 router.put('/update-payment', updateOrderStatus);
 router.post('/send-email', sendDeliveryEmail);
+router.get('/email-templates', getEmailTemplates);
+router.put('/email-templates', updateEmailTemplate);
 
 export default router;

@@ -5,6 +5,7 @@ import Quote from '../models/Quote.js';
 import mongoose from 'mongoose';
 import nodemailer from "nodemailer";
 import User from "../models/User.js";
+import EmailTemplate from '../models/EmailTemplate.js';
 
 export const createCheckout = async (req, res) => {
   const errors = validationResult(req);
@@ -625,30 +626,51 @@ export const sendDeliveryEmail = async (req, res) => {
     const subject = `Super-Merch: Order ${status || "Update"}`;
 
     // Dynamic message per status
-    const statusMessage = (() => {
-      switch (status) {
-        case "Delivered":
-          return "Good news — your order has been <strong>delivered</strong>.";
-        case "Artwork Pending":
-          return "Your order is currently in <strong>artwork pending</strong> stage. Our team will review and update you soon.";
-        case "ArtWork Approved":
-          return "Your artwork has been <strong>approved</strong> and we’re moving forward!";
-        case "Branding in progress":
-          return "Your order is currently <strong>under branding</strong>. We’re working on it.";
-        case "Production Complete":
-          return "Your order’s <strong>production is complete</strong> and it will move to shipping soon.";
-        case "Shipped/In Transit":
-          return "Your order has been <strong>shipped</strong> and is on its way!";
-        case "Cancelled":
-          return "Your order has been <strong>cancelled</strong>. If this was unexpected, please contact our support.";
-        case "Returned":
-          return "Your order has been <strong>returned</strong>. Please reach out if you need further assistance.";
-        case "On Hold":
-          return "Your order is currently <strong>on hold</strong>. Our support team may contact you.";
-        default:
-          return `Your order status has been updated to <strong>${escapeHtml(status || "Unknown")}</strong>.`;
-      }
-    })();
+    // Fetch custom template from database
+let statusMessage;
+const template = await EmailTemplate.findOne({ status });
+try {
+  if (template && template.message) {
+    // Replace placeholders
+    statusMessage = template.message
+      .replace(/{customerName}/g, recipientName)
+      .replace(/{orderId}/g, orderIdentifier)
+      .replace(/{date}/g, deliveredAt)
+      .replace(/{status}/g, status);
+  } else {
+    // Fallback to default
+    statusMessage = getDefaultStatusMessage(status);
+  }
+} catch (error) {
+  console.error('Error fetching template:', error);
+  statusMessage = getDefaultStatusMessage(status);
+}
+
+// Helper function for defaults
+function getDefaultStatusMessage(status) {
+  switch (status) {
+    case "Delivered":
+      return "Good news — your order has been <strong>delivered</strong>.";
+    case "Artwork Pending":
+      return "Your order is currently in <strong>artwork pending</strong> stage.";
+    case "ArtWork Approved":
+      return "Your artwork has been <strong>approved</strong>!";
+    case "Branding in progress":
+      return "Your order is currently <strong>under branding</strong>.";
+    case "Production Complete":
+      return "Your order's <strong>production is complete</strong>.";
+    case "Shipped/In Transit":
+      return "Your order has been <strong>shipped</strong>!";
+    case "Cancelled":
+      return "Your order has been <strong>cancelled</strong>.";
+    case "Returned":
+      return "Your order has been <strong>returned</strong>.";
+    case "On Hold":
+      return "Your order is currently <strong>on hold</strong>.";
+    default:
+      return `Your order status: <strong>${escapeHtml(status)}</strong>.`;
+  }
+}
 
     const html = `
       <div style="font-family: Arial, sans-serif; color: #111;">
@@ -656,10 +678,6 @@ export const sendDeliveryEmail = async (req, res) => {
         <p>${statusMessage}</p>
 
         <h3>Order summary</h3>
-        <p><strong>Order ID:</strong> ${escapeHtml(String(orderIdentifier))}</p>
-        <p><strong>Status Updated At:</strong> ${escapeHtml(deliveredAt)}</p>
-        <p><strong>Current Status:</strong> ${escapeHtml(status || "Unknown")}</p>
-
         <h4>Products</h4>
         <ul style="padding-left: 18px;">
           ${productsHtml || "<li>(No products found)</li>"}
@@ -721,6 +739,63 @@ export const sendDeliveryEmail = async (req, res) => {
   } catch (error) {
     console.error("Error sending delivery email:", error);
     return res.status(500).json({ success: false, message: "Error sending delivery email" });
+  }
+};
+
+
+
+// Get all email templates
+export const getEmailTemplates = async (req, res) => {
+  try {
+    const templates = await EmailTemplate.find();
+    const templatesObj = {};
+    
+    templates.forEach(t => {
+      templatesObj[t.status] = t.message;
+    });
+
+    return res.status(200).json({
+      success: true,
+      templates: templatesObj
+    });
+  } catch (error) {
+    console.error('Error fetching templates:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Error fetching templates' 
+    });
+  }
+};
+
+// Update email template
+export const updateEmailTemplate = async (req, res) => {
+  try {
+    const { status, message } = req.body;
+
+    if (!status || !message) {
+      return res.status(400).json({
+        success: false,
+        message: 'Status and message are required'
+      });
+    }
+
+    const template = await EmailTemplate.findOneAndUpdate(
+      { status },
+      { status, message },
+      { upsert: true, new: true }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: 'Template updated successfully',
+      template
+    });
+  } catch (error) {
+    console.error('Error updating template:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error updating template'
+    });
   }
 };
 
