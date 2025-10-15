@@ -16,6 +16,8 @@ import {
   sendNote,
   getEmailTemplates,
   updateEmailTemplate,
+  uploadLogo,
+  getLogo,
 } from '../controllers/checkoutController.js';
 import authMiddleware, { optionalAuth } from '../middleware/authMiddleware.js';
 import adminMiddlewere from '../middleware/adminMiddlewere.js';
@@ -30,6 +32,8 @@ router.post(
 );
 router.post('/quote', upload.single('file'), quoteSaver);
 router.post('/send-note',sendNote)
+router.post('/upload-logo', uploadLogo);
+router.get('/get-logo/:id', getLogo);
 
 router.get('/products/:id?', getAllProducts);
 

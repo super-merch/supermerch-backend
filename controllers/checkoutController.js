@@ -6,6 +6,7 @@ import mongoose from 'mongoose';
 import nodemailer from "nodemailer";
 import User from "../models/User.js";
 import EmailTemplate from '../models/EmailTemplate.js';
+import logoModel from '../models/logo.js';
 
 export const createCheckout = async (req, res) => {
   const errors = validationResult(req);
@@ -16,11 +17,10 @@ export const createCheckout = async (req, res) => {
   let { orderId, userId, user, billingAddress,
     shippingAddress, products, shipping, discount,
     // tax, 
-    total, gst, paymentStatus } =
+    total, gst, paymentStatus,artworkMessage,artworkOption,logoId } =
     req.body;
   console.log(userId, 'userId');
   console.log(req.body, 'body');
-
   products = await Promise.all(
     products.map(async (product) => {
       if (product.logo && !product.logo.startsWith('http')) {
@@ -55,7 +55,10 @@ export const createCheckout = async (req, res) => {
       discount,
       // tax,
       total,
-      paymentStatus
+      paymentStatus,
+      artworkMessage,
+      artworkOption,
+      logoId
     });
 
     await checkout.save();
@@ -67,6 +70,36 @@ export const createCheckout = async (req, res) => {
     res.status(500).json({ error: 'Error saving checkout data' });
   }
 };
+export const uploadLogo=async(req,res)=>{
+  const {logo} = req.body
+  try {
+    const uploadResponse = await cloudinary.uploader.upload(
+      logo,
+      {
+        folder: 'logos',
+        resource_type: 'image',
+      }
+    );
+    const newLogo = new logoModel({
+      logo: uploadResponse.secure_url,
+    });
+    await newLogo.save();
+    res.status(200).json({ data: newLogo, message: 'Logo uploaded successfully' });
+  } catch (error) {
+    console.error('Error uploading logo to Cloudinary:', error);
+    res.status(500).json({ error: 'Failed to upload logo' });
+  }
+}
+export const getLogo = async(req,res)=>{
+  const {id} = req.params
+  try {
+    const logo = await logoModel.findById(id);
+    res.status(200).json({ data: logo, message: 'Logo fetched successfully' });
+  } catch (error) {
+    console.error('Error fetching logo:', error);
+    res.status(500).json({ error: 'Failed to fetch logo' });
+  }
+}
 
 export const getAllProducts = async (req, res) => {
   const { id } = req.params;

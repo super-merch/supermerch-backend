@@ -13,7 +13,7 @@ const userSchema = new mongoose.Schema({
     required: [true, "Email is required"],
     unique: true,
     match: [/.+@.+\..+/, "Please enter a valid email address"],
-    
+
   },
   password: {
     type: String,
@@ -21,10 +21,10 @@ const userSchema = new mongoose.Schema({
     minlength: [6, "Password must be at least 6 characters long"],
   },
   createdAt: {
-  type: Date,
-  default: Date.now
-},
-resetCode: {
+    type: Date,
+    default: Date.now
+  },
+  resetCode: {
     type: String,
     default: undefined
   },
@@ -35,9 +35,9 @@ resetCode: {
   defaultAddress: { type: Object, default: {} },
   defaultShippingAddress: { type: Object, default: {} },
 }
-,{
-  timestamps: true
-});
+  , {
+    timestamps: true
+  });
 
 
 
