@@ -442,10 +442,7 @@ export function applyDiscountToProduct(product, discountPercentage) {
         if (key === "price" && typeof value === "number") {
           // Apply discount to price fields
           processed[key] = applyDiscountToPrice(value, discountPercentage);
-        } else if (key === "setup" && typeof value === "number") {
-          // Apply discount to setup costs
-          processed[key] = applyDiscountToPrice(value, discountPercentage);
-        } else if (key === "price_breaks" && Array.isArray(value)) {
+        }else if (key === "price_breaks" && Array.isArray(value)) {
           // Handle price breaks array
           processed[key] = value.map((priceBreak) => ({
             ...priceBreak,
@@ -566,9 +563,6 @@ export async function addMarginToAllPrices(product, marginAmount = 0) {
         for (const [key, value] of Object.entries(obj)) {
           if (key === "price" && typeof value === "number") {
             // Add margin to price fields
-            processed[key] = value + finalMarginAmount;
-          } else if (key === "setup" && typeof value === "number") {
-            // Add margin to setup costs
             processed[key] = value + finalMarginAmount;
           } else if (key === "price_breaks" && Array.isArray(value)) {
             // Only add margin to price_breaks if parent is base_price
@@ -1195,7 +1189,7 @@ app.get("/api/client-products/search", async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const doFilter = req.query.filter !== "false";
   const searchTerm = req.query.searchTerm || "";
-  const limit = parseInt(req.query.limit) || 9; // Changed to parse as integer and default to 9
+  const limit = parseInt(req.query.limit) || 9;
 
   const AUTH_TOKEN =
     "NDVhOWFkYWVkZWJmYTU0Njo3OWQ4MzJlODdmMjM4ZTJhMDZlNDY3MmVlZDIwYzczYQ";
@@ -2210,7 +2204,7 @@ app.get("/api/single-product/:id", async (req, res) => {
 // Updated params-products endpoint with category margin calculation
 app.get("/api/params-products", async (req, res) => {
   const category = req.query.product_type_ids;
-  const itemCount = parseInt(req.query.items_per_page) || 10;
+  const itemCount = parseInt(req.query.limit) || 10;
   const page = parseInt(req.query.page) || 1;
   const doFilter = req.query.filter !== "false";
   const supplier = req.query.supplier_id || null;
@@ -2618,7 +2612,7 @@ app.get("/api/v1-categories", async (req, res) => {
 // *****************************************************************
 
 app.post("/create-checkout-session", async (req, res) => {
-  const { products, gst, coupon, shipping } = req.body; // Get GST and coupon from frontend
+  const { products, gst, coupon, shipping,setupFee } = req.body; // Get GST and coupon from frontend
 
   // Calculate the total before GST
   const subtotal = products.reduce(
@@ -2647,6 +2641,20 @@ app.post("/create-checkout-session", async (req, res) => {
           description: "Shipping charges",
         },
         unit_amount: Math.round(shipping * 100), // Convert to cents
+      },
+      quantity: 1,
+    });
+  }
+
+  if (setupFee && setupFee > 0) {
+    lineItems.push({
+      price_data: {
+        currency: "usd",
+        product_data: {
+          name: "Setup Fee",
+          description: "Setup fee",
+        },
+        unit_amount: Math.round(setupFee * 100), // Convert to cents
       },
       quantity: 1,
     });

@@ -17,7 +17,7 @@ export const createCheckout = async (req, res) => {
   let { orderId, userId, user, billingAddress,
     shippingAddress, products, shipping, discount,
     // tax, 
-    total, gst, paymentStatus,artworkMessage,artworkOption,logoId } =
+    total, gst, paymentStatus,artworkMessage,artworkOption,logoId,setupFee } =
     req.body;
   console.log(userId, 'userId');
   console.log(req.body, 'body');
@@ -58,7 +58,8 @@ export const createCheckout = async (req, res) => {
       paymentStatus,
       artworkMessage,
       artworkOption,
-      logoId
+      logoId,
+      setupFee
     });
 
     await checkout.save();
