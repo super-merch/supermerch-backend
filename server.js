@@ -1190,6 +1190,7 @@ app.get("/api/client-products/search", async (req, res) => {
   const doFilter = req.query.filter !== "false";
   const searchTerm = req.query.searchTerm || "";
   const limit = parseInt(req.query.limit) || 9;
+  const category = req.query.product_type_ids || null
 
   const AUTH_TOKEN =
     "NDVhOWFkYWVkZWJmYTU0Njo3OWQ4MzJlODdmMjM4ZTJhMDZlNDY3MmVlZDIwYzczYQ";
@@ -1201,7 +1202,7 @@ app.get("/api/client-products/search", async (req, res) => {
   try {
     // Fetch products with proper pagination
     const prodResp = await axios.post(
-      `https://api.promodata.com.au/products/search?page=${page}&items_per_page=${limit}&include_discontinued=false`,
+      `https://api.promodata.com.au/products/search?page=${page}${category && `&product_type_ids=${category}`}&items_per_page=${limit}&include_discontinued=false`,
       {
         search_term: searchTerm,
       },
